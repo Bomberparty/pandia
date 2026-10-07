@@ -242,8 +242,8 @@ git clone https://github.com/hendurhance/pandia
 cd pandia
 npm ci
 
-npm run tauri dev      # development build, hot-reload
-npm run tauri build    # release build for the current platform
+npm run tauri dev      # development build, hot-reload (pastel dev icon)
+npm run tauri build -- --config src-tauri/tauri.prod.conf.json    # release build with the real icon
 ```
 
 ### Useful commands
