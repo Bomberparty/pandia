@@ -61,6 +61,20 @@ describe('buildMenuModel', () => {
 		expect(a).toContain('extract');
 	});
 
+	it('a key inside an array item offers extract from all items', () => {
+		const a = actions(
+			buildMenuModel(row({ kind: 'object', key: 'info', path: ['items', 0, 'info'] }), caps),
+		);
+		expect(a).toContain('extract-column');
+	});
+
+	it('array items and keys of plain objects do not offer extract from all items', () => {
+		const item = row({ kind: 'object', key: 0, path: ['items', 0] });
+		const objectKey = row({ key: 'name', path: ['user', 'name'] });
+		expect(actions(buildMenuModel(item, caps))).not.toContain('extract-column');
+		expect(actions(buildMenuModel(objectKey, caps))).not.toContain('extract-column');
+	});
+
 	it('move children reflect the caps via `disabled`', () => {
 		const groups = buildMenuModel(row({ kind: 'string', key: 'name', depth: 1 }), {
 			canMoveUp: false,

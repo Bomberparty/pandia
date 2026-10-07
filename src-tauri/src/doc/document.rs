@@ -739,6 +739,20 @@ impl Document {
         Ok(out)
     }
 
+    pub fn get_column(&self, path: &Path, key: &str) -> DocResult<Vec<Value>> {
+        if path.is_root() && self.source_size > GET_VALUE_ROOT_LIMIT {
+            return Err(DocError::TooLarge {
+                actual: self.source_size,
+                limit: GET_VALUE_ROOT_LIMIT,
+            });
+        }
+        Ok(self
+            .column_cells(path, key)?
+            .into_iter()
+            .flatten()
+            .collect())
+    }
+
     pub fn get_value(&self, path: &Path) -> DocResult<Value> {
         if path.is_root() && self.source_size > GET_VALUE_ROOT_LIMIT {
             return Err(DocError::TooLarge {
@@ -2047,6 +2061,34 @@ mod tests {
             "big integer kept as a literal, got: {json}"
         );
         assert!(!json.contains("123456789012345680"), "not rounded to f64");
+    }
+
+    #[test]
+    fn get_column_plucks_key_and_skips_items_without_it() {
+        let d = doc(r#"[
+                {"info": {"name": "Linh"}},
+                {"other": 1},
+                42,
+                {"info": null},
+                {"info": {"name": "David"}}
+            ]"#);
+        let vals = d.get_column(&Path::root(), "info").unwrap();
+        assert_eq!(
+            vals,
+            vec![
+                serde_json::json!({"name": "Linh"}),
+                serde_json::Value::Null,
+                serde_json::json!({"name": "David"}),
+            ]
+        );
+    }
+
+    #[test]
+    fn get_column_root_rejected_when_too_large() {
+        let mut d = doc(r#"[{"a": 1}]"#);
+        d.source_size = 210 * 1024 * 1024;
+        let err = d.get_column(&Path::root(), "a").unwrap_err();
+        assert!(matches!(err, DocError::TooLarge { .. }));
     }
 
     #[test]

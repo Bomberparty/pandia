@@ -212,6 +212,17 @@ fn doc_get_rows_at_inner(
     doc.get_rows_at(path, &indices)
 }
 
+fn doc_get_column_inner(
+    store: &DocStore,
+    handle: DocHandle,
+    path: &Path,
+    key: &str,
+) -> DocResult<Vec<serde_json::Value>> {
+    let arc = store.get(handle).ok_or(DocError::NotFound(handle))?;
+    let doc = arc.read();
+    doc.get_column(path, key)
+}
+
 fn doc_column_values_inner(
     store: &DocStore,
     handle: DocHandle,
@@ -672,6 +683,24 @@ pub async fn doc_get_rows_at(
     let store = state.inner().clone();
     run_blocking(move || {
         let values = doc_get_rows_at_inner(&store, handle, &path, indices)?;
+        Ok(LosslessText::from_value_pretty(&serde_json::Value::Array(
+            values,
+        )))
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn doc_get_column(
+    state: tauri::State<'_, Arc<DocStore>>,
+    handle: DocHandle,
+    path: Path,
+    key: String,
+) -> Result<LosslessText, WireError> {
+    let store = state.inner().clone();
+    run_blocking(move || {
+        let values = doc_get_column_inner(&store, handle, &path, &key)?;
         Ok(LosslessText::from_value_pretty(&serde_json::Value::Array(
             values,
         )))

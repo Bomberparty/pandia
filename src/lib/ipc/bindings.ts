@@ -15,6 +15,7 @@ export const commands = {
 	docGetRowsFiltered: (handle: DocHandle, path: Path, start: number, end: number, query: GridQuery, jobId: string | null) => __TAURI_INVOKE<FilteredRowsJson>("doc_get_rows_filtered", { handle, path, start, end, query, jobId }),
 	docColumnValues: (handle: DocHandle, path: Path, key: string, limit: number) => __TAURI_INVOKE<ColumnValues>("doc_column_values", { handle, path, key, limit }),
 	docGetRowsAt: (handle: DocHandle, path: Path, indices: number[]) => __TAURI_INVOKE<string & { readonly __brand: "LosslessText" }>("doc_get_rows_at", { handle, path, indices }),
+	docGetColumn: (handle: DocHandle, path: Path, key: string) => __TAURI_INVOKE<string & { readonly __brand: "LosslessText" }>("doc_get_column", { handle, path, key }),
 	docSummary: (handle: DocHandle) => __TAURI_INVOKE<Summary>("doc_summary", { handle }),
 	docChildCount: (handle: DocHandle, path: Path) => __TAURI_INVOKE<number | null>("doc_child_count", { handle, path }),
 	docColumnSchema: (handle: DocHandle, path: Path) => __TAURI_INVOKE<ColumnSchema>("doc_column_schema", { handle, path }),

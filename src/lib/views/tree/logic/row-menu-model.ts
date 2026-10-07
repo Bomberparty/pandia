@@ -35,6 +35,8 @@ export function buildMenuModel(row: ContentRow, caps: MenuCaps): MenuGroup[] {
 	const isLeaf =
 		row.kind === 'string' || row.kind === 'number' || row.kind === 'bool' || row.kind === 'null';
 	const isObject = row.kind === 'object';
+	const isArrayItemKey =
+		typeof row.key === 'string' && typeof row.path[row.path.length - 2] === 'number';
 
 	const g: MenuGroup[] = [];
 
@@ -103,7 +105,18 @@ export function buildMenuModel(row: ContentRow, caps: MenuCaps): MenuGroup[] {
 		g.push([{ type: 'sub', label: 'Convert to', ico: '⇄', children: convertChildren }]);
 	}
 
-	g.push([{ type: 'action', action: 'extract', label: 'Extract to new tab', ico: '↗' }]);
+	const extract: MenuItem[] = [
+		{ type: 'action', action: 'extract', label: 'Extract to new tab', ico: '↗' },
+	];
+	if (isArrayItemKey) {
+		extract.push({
+			type: 'action',
+			action: 'extract-column',
+			label: 'Extract key from all items',
+			ico: '↗',
+		});
+	}
+	g.push(extract);
 
 	if (isInsideContainer) {
 		g.push([{ type: 'action', action: 'remove', label: 'Remove', ico: '✕', danger: true }]);

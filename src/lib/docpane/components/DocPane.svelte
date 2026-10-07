@@ -11,7 +11,8 @@
 		Path,
 		TypegenLang,
 	} from '$lib/ipc/bindings';
-	import type { MenuAction } from '$lib/views/tree/logic/model';
+	import { rootRow, type MenuAction } from '$lib/views/tree/logic/model';
+	import { chipText } from '$lib/views/tree/logic/row-format';
 	import TreeView from '$lib/views/tree/components/TreeView.svelte';
 	import Breadcrumb from '$lib/views/tree/components/Breadcrumb.svelte';
 	import CodeView, { type CodeViewApi } from '$lib/views/code/CodeView.svelte';
@@ -261,6 +262,7 @@
 				? (gridSelected?.kind ?? null)
 				: kindAtSelection(tree.rows, tree.contentRowIdx, activePath, s.rootKind),
 			sizeDisplay: fmtBytes(s.sourceSize),
+			rootCountDisplay: chipText(rootRow(s.rootKind, s.rootChildCount)),
 			lazy: s.lazy,
 			validity: validityFromView({
 				viewMode: doc.viewMode,

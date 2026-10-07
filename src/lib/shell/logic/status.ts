@@ -8,6 +8,7 @@ export interface DocStatus {
 	pathDisplay: string | null;
 	kindDisplay: NodeKind | null;
 	sizeDisplay: string | null;
+	rootCountDisplay: string | null;
 	lazy: boolean;
 	validity: ValidityStatus | null;
 
@@ -31,6 +32,7 @@ export function statusEq(a: DocStatus | null, b: DocStatus | null): boolean {
 		a.pathDisplay === b.pathDisplay &&
 		a.kindDisplay === b.kindDisplay &&
 		a.sizeDisplay === b.sizeDisplay &&
+		a.rootCountDisplay === b.rootCountDisplay &&
 		a.lazy === b.lazy &&
 		validityEq(a.validity, b.validity) &&
 		!!a.editing === !!b.editing &&

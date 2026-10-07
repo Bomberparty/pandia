@@ -99,6 +99,12 @@ export function createNodeActions(deps: NodeActionDeps) {
 		return `${base}.json`;
 	}
 
+	async function openExtracted(row: ContentRow, read: (handle: DocHandle) => Promise<string>) {
+		const handle = deps.handle();
+		if (!handle) return;
+		deps.onOpenInNewTab({ kind: 'text', text: await read(handle), name: extractName(row) });
+	}
+
 	async function remove(row: ContentRow) {
 		if (row.depth === 0) return;
 		const parentPath = row.path.slice(0, -1);
@@ -360,19 +366,11 @@ export function createNodeActions(deps: NodeActionDeps) {
 			deps.setCutMark(null);
 		}),
 
-		async extract(row: ContentRow) {
-			const handle = deps.handle();
-			if (!handle) return;
-			try {
-				const text = await ipc.docGetValue(handle, row.path);
-				deps.onOpenInNewTab({
-					kind: 'text',
-					text,
-					name: extractName(row),
-				});
-			} catch (e) {
-				deps.setError(describeError(e));
-			}
-		},
+		extract: guard((row: ContentRow) => openExtracted(row, (h) => ipc.docGetValue(h, row.path))),
+
+		// The menu offers this only on a key of an array item: [...array, index, key].
+		extractColumn: guard((row: ContentRow) =>
+			openExtracted(row, (h) => ipc.docGetColumn(h, row.path.slice(0, -2), String(row.key))),
+		),
 	};
 }

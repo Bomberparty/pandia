@@ -27,6 +27,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::doc_get_rows_filtered,
             commands::doc_column_values,
             commands::doc_get_rows_at,
+            commands::doc_get_column,
             commands::doc_summary,
             commands::doc_child_count,
             commands::doc_column_schema,

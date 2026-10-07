@@ -59,8 +59,6 @@ export {
 	type ThemeFamily,
 } from './theme-palettes';
 
-import { DEFAULT_THEME } from './theme-palettes';
-
 export const APPEARANCE_CHANGE_EVENT = 'pandia:appearance-change';
 
 function emitAppearanceChange(): void {
@@ -146,7 +144,6 @@ export function applyFontSizeBase(px: number): void {
 }
 
 export function resetAppearance(): void {
-	applyTheme(DEFAULT_THEME);
 	applyDensity('normal');
 	const r = document.documentElement;
 	r.style.removeProperty('--font-mono');

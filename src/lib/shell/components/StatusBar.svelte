@@ -32,6 +32,12 @@
 			<span class="val">{status.sizeDisplay ?? '—'}</span>
 			{#if status.lazy}<span class="kbd">lazy</span>{/if}
 		</div>
+		{#if status.rootCountDisplay}
+			<div class="sb-cell">
+				<span class="lbl">root</span>
+				<span class="val">{status.rootCountDisplay}</span>
+			</div>
+		{/if}
 		{#if status.validity}
 			{@const v = status.validity}
 			<div class="sb-cell" data-validity={v.ok ? 'valid' : 'invalid'}>
