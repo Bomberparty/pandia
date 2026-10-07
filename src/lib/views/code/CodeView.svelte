@@ -439,8 +439,8 @@
 		position: absolute;
 		top: 0.4rem;
 		right: 1rem;
-		font-size: 11px;
-		padding: 0.15rem 0.5rem;
+		font-size: var(--font-size-sm);
+		padding: var(--space-2xs) var(--space-sm);
 		background: var(--bg-elev);
 		border: 1px solid var(--rule);
 		pointer-events: none;
@@ -449,25 +449,25 @@
 		color: var(--text-dim);
 	}
 	.status.err {
-		color: var(--accent);
-		border-color: var(--accent);
+		color: var(--danger);
+		border-color: var(--danger);
 	}
 
 	.edit-bar {
 		flex-shrink: 0;
 		display: flex;
 		align-items: center;
-		gap: 0.8rem;
-		padding: 0.3rem 1rem;
+		gap: var(--space-md);
+		padding: var(--space-xs) var(--space-md);
 		background: var(--bg-elev);
-		border-top: var(--rule-width) solid var(--accent);
+		border-top: var(--rule-width) solid var(--danger);
 		font-size: var(--font-size-sm);
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.eb-msg {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -477,20 +477,20 @@
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
-		background: var(--accent);
+		background: var(--danger);
 		flex-shrink: 0;
 	}
 
 	.cm-wrap :global(.cm-diff-added) {
-		background: rgba(123, 166, 136, 0.18);
+		background: var(--success-tint);
 	}
 	.cm-wrap :global(.cm-diff-removed) {
-		background: var(--accent-fill);
+		background: var(--danger-tint);
 		text-decoration: line-through;
-		text-decoration-color: var(--accent-line);
+		text-decoration-color: var(--danger);
 	}
 	.cm-wrap :global(.cm-diff-changed) {
-		background: rgba(201, 162, 75, 0.18);
+		background: var(--warning-tint);
 	}
 	.cm-wrap :global(.cm-diff-active) {
 		outline: 1px solid var(--accent);

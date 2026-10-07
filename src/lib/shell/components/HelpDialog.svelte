@@ -122,30 +122,30 @@
 
 	.body {
 		overflow-y: auto;
-		padding: 0.9rem 1rem 0.4rem;
+		padding: var(--space-md) var(--space-md) var(--space-xs);
 
 		columns: 2;
-		column-gap: 2rem;
+		column-gap: var(--space-xl);
 	}
 	.grp {
 		break-inside: avoid;
-		margin-bottom: 1rem;
+		margin-bottom: var(--space-md);
 	}
 	.grp-title {
-		color: var(--accent);
+		color: var(--text-dim);
 		text-transform: uppercase;
-		letter-spacing: 0.2em;
+		letter-spacing: var(--label-tracking);
 		font-size: var(--font-size-xs);
-		padding-bottom: 0.35rem;
-		margin-bottom: 0.25rem;
+		padding-bottom: var(--space-xs);
+		margin-bottom: var(--space-xs);
 		border-bottom: var(--rule-width) solid var(--rule);
 	}
 
 	.rows {
 		display: grid;
 		grid-template-columns: auto 1fr;
-		column-gap: 0.8rem;
-		row-gap: 0.34rem;
+		column-gap: var(--space-md);
+		row-gap: var(--space-xs);
 		align-items: baseline;
 		list-style: none;
 		margin: 0;
@@ -156,12 +156,12 @@
 	}
 	.keys {
 		display: flex;
-		gap: 3px;
+		gap: var(--space-xs);
 		justify-content: flex-start;
 	}
 	.keys kbd {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--font-size-sm);
 		min-width: 1.4em;
 		text-align: center;
 		padding: 0 0.4ch;

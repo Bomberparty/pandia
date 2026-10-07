@@ -38,9 +38,9 @@
 		max-width: 460px;
 		display: flex;
 		flex-direction: column;
-		gap: 0.6rem;
-		padding: 0.9rem 1rem;
-		box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+		gap: var(--space-sm);
+		padding: var(--space-md);
+		box-shadow: var(--shadow-modal);
 	}
 	.title {
 		color: var(--text);
@@ -55,18 +55,15 @@
 	.actions {
 		display: flex;
 		justify-content: flex-end;
-		gap: 0.4rem;
-		margin-top: 0.2rem;
+		gap: var(--space-xs);
+		margin-top: var(--space-2xs);
 	}
 	.hint {
-		color: var(--text-faint);
-		margin-left: 0.4rem;
+		color: var(--text-dim);
+		margin-left: var(--space-xs);
 	}
 	.btn-primary .hint {
-		color: var(--bg);
+		color: var(--on-accent);
 		opacity: 0.6;
-	}
-	.btn-primary:hover .hint {
-		color: var(--accent);
 	}
 </style>

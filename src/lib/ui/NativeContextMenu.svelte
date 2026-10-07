@@ -187,9 +187,10 @@
 		position: fixed;
 		z-index: 9999;
 		min-width: 140px;
-		padding: 4px 0;
+		padding: var(--space-xs) 0;
 		background: var(--bg-elev);
 		border: var(--rule-width) solid var(--rule);
+		box-shadow: var(--shadow-pop);
 		font-size: var(--font-size-sm);
 		color: var(--text);
 		user-select: none;
@@ -197,7 +198,7 @@
 	.ctx-item {
 		display: block;
 		width: 100%;
-		padding: 4px 12px;
+		padding: var(--space-xs) var(--space-md);
 		background: transparent;
 		border: none;
 		text-align: left;
@@ -206,12 +207,12 @@
 		cursor: pointer;
 	}
 	.ctx-item:hover {
-		background: var(--accent-soft);
-		color: var(--accent);
+		background: var(--bg-elev-2);
+		color: var(--text);
 	}
 	.ctx-sep {
 		height: 1px;
-		margin: 4px 0;
+		margin: var(--space-xs) 0;
 		background: var(--rule);
 	}
 </style>

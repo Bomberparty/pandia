@@ -118,7 +118,7 @@
 
 <style>
 	.panel {
-		gap: 0.4rem;
+		gap: var(--space-xs);
 		min-width: 0;
 		container-type: inline-size;
 	}
@@ -126,14 +126,14 @@
 	.bar {
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
+		gap: var(--space-xs);
 		min-width: 0;
 		flex-shrink: 0;
 	}
 	.bar-right {
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
+		gap: var(--space-xs);
 		margin-left: auto;
 		flex: 0 0 auto;
 	}
@@ -141,7 +141,7 @@
 	.lang-select {
 		font-family: var(--font-mono);
 		font-size: var(--font-size-sm);
-		padding: 0.15rem 0.3rem;
+		padding: var(--space-2xs) var(--space-xs);
 		background: var(--bg-elev);
 		color: var(--text);
 		border: var(--rule-width) solid var(--rule);
@@ -168,7 +168,7 @@
 	.status {
 		flex-shrink: 0;
 		text-align: right;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
 		font-variant-numeric: tabular-nums;
@@ -185,8 +185,8 @@
 	}
 
 	.icon {
-		font-size: 12px;
-		padding: 0.1rem 0.45rem;
+		font-size: var(--font-size-sm);
+		padding: var(--space-2xs) var(--space-xs);
 		min-width: 0;
 		flex-shrink: 0;
 		background: transparent;
@@ -194,8 +194,8 @@
 		color: var(--text-dim);
 	}
 	.icon:hover {
-		color: var(--accent);
-		border-color: var(--accent);
+		color: var(--text);
+		border-color: var(--rule-2);
 	}
 	.icon:disabled {
 		color: var(--text-faint);
@@ -215,7 +215,7 @@
 		flex: 1;
 		min-height: 240px;
 		margin: 0;
-		padding: 0.5rem 0.6rem;
+		padding: var(--space-sm);
 		background: var(--bg-elev);
 		border: var(--rule-width) solid var(--rule);
 		font-family: var(--font-mono);

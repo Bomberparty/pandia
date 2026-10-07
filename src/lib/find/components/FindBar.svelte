@@ -135,13 +135,11 @@
 		z-index: 40;
 		display: flex;
 		align-items: flex-start;
-		gap: 2px;
-		padding: 4px;
+		gap: var(--space-2xs);
+		padding: var(--space-xs);
 		background: var(--bg-elev);
 		border: var(--rule-width) solid var(--rule);
-		box-shadow:
-			0 1px 0 rgba(0, 0, 0, 0.4),
-			0 8px 24px rgba(0, 0, 0, 0.35);
+		box-shadow: var(--shadow-pop);
 		min-width: 380px;
 		max-width: 480px;
 		font-size: var(--font-size-sm);
@@ -156,13 +154,13 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		cursor: pointer;
 		padding: 0;
 		align-self: stretch;
 	}
 	.expander:hover {
-		color: var(--accent);
+		color: var(--text);
 	}
 	.expander:focus-visible {
 		outline: none;
@@ -170,7 +168,7 @@
 	}
 	.chev {
 		display: inline-block;
-		font-size: 10px;
+		font-size: var(--font-size-xs);
 		transition: transform 120ms ease;
 	}
 	.chev.open {
@@ -181,13 +179,13 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-xs);
 		min-width: 0;
 	}
 	.row {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-xs);
 	}
 
 	.field {
@@ -197,7 +195,7 @@
 		min-width: 0;
 		background: var(--bg);
 		border: var(--rule-width) solid var(--rule);
-		padding: 0 6px;
+		padding: 0 var(--space-sm);
 		height: 26px;
 		transition: border-color 80ms linear;
 	}
@@ -220,10 +218,10 @@
 
 	.counter {
 		flex-shrink: 0;
-		margin-left: 8px;
-		font-size: 10px;
+		margin-left: var(--space-sm);
+		font-size: var(--font-size-xs);
 		letter-spacing: 0.06em;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		white-space: nowrap;
 	}
 
@@ -237,10 +235,10 @@
 	.repl {
 		background: transparent;
 		border: var(--rule-width) solid var(--rule);
-		padding: 0 10px;
+		padding: 0 var(--space-md);
 		height: 26px;
 		font-size: var(--font-size-xs);
-		letter-spacing: 0.14em;
+		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
 		color: var(--text-dim);
 		cursor: pointer;
@@ -257,7 +255,7 @@
 		border-color: var(--accent);
 	}
 	.repl:disabled {
-		color: var(--text-ghost);
+		color: var(--text-faint);
 		cursor: default;
 		border-color: var(--rule);
 	}

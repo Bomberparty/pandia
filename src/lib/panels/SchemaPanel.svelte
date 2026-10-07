@@ -201,17 +201,17 @@
 
 <style>
 	.panel {
-		gap: 0.6rem;
+		gap: var(--space-sm);
 	}
 
 	.status {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 		font-size: var(--font-size-xs);
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 	.status[data-kind='ok'] .status-text {
 		color: var(--success);
@@ -240,12 +240,12 @@
 	.warn code {
 		font-family: var(--font-mono);
 		color: var(--warning);
-		font-size: 10px;
+		font-size: var(--font-size-xs);
 	}
 
 	.bar {
 		display: flex;
-		gap: 0.4rem;
+		gap: var(--space-xs);
 	}
 
 	textarea {
@@ -259,12 +259,12 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
-		gap: 0.3rem;
+		gap: var(--space-xs);
 		border-top: var(--rule-width) solid var(--rule);
-		padding-top: 0.5rem;
+		padding-top: var(--space-sm);
 	}
 	.errs-head {
-		color: var(--accent);
+		color: var(--danger);
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
 	}
@@ -275,7 +275,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: var(--space-xs);
 		overflow-y: auto;
 		max-height: 320px;
 	}
@@ -286,7 +286,7 @@
 		display: flex;
 		flex-direction: column;
 		align-items: stretch;
-		gap: 0.1rem;
+		gap: var(--space-2xs);
 		width: 100%;
 		text-align: left;
 		background: transparent;
@@ -297,19 +297,19 @@
 		color: inherit;
 	}
 	.err-row:hover {
-		color: var(--accent);
+		color: var(--text);
 	}
 	.err-row:hover .err-path {
-		color: var(--accent);
+		color: var(--text);
 	}
 	.err-row:focus-visible {
 		outline: 1px solid var(--accent);
 		outline-offset: -1px;
 	}
 	.err-path {
-		color: var(--accent-2);
+		color: var(--text-dim);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--font-size-xs);
 	}
 	.err-msg {
 		color: var(--text-dim);

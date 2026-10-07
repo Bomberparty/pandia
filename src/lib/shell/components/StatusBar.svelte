@@ -107,17 +107,17 @@
 	.sb-cell {
 		display: inline-flex;
 		align-items: center;
-		gap: 8px;
-		padding: 0 14px;
+		gap: var(--space-sm);
+		padding: 0 var(--space-lg);
 		border-right: var(--rule-width) solid var(--rule);
 		min-width: 0;
 	}
 
 	.lbl {
-		color: var(--text-faint);
+		color: var(--text-dim);
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
-		font-size: 9.5px;
+		font-size: var(--font-size-xs);
 	}
 	.val {
 		color: var(--text);
@@ -128,7 +128,7 @@
 		max-width: 40ch;
 	}
 	.sb-cell.path .val {
-		color: var(--accent-2);
+		color: var(--text);
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
@@ -142,7 +142,7 @@
 	}
 	.dot.bad::before {
 		content: '● ';
-		color: var(--accent);
+		color: var(--danger);
 	}
 
 	.sb-cell.editing .val {
@@ -166,10 +166,10 @@
 	}
 
 	.kbd {
-		padding: 0 5px;
-		color: var(--text-faint);
+		padding: 0 var(--space-xs);
+		color: var(--text-dim);
 		border: var(--rule-width) solid var(--rule-2);
-		font-size: 9.5px;
+		font-size: var(--font-size-xs);
 		letter-spacing: 0;
 	}
 
@@ -194,8 +194,8 @@
 		color: var(--text);
 	}
 	.kbd-cell:hover .kbd {
-		color: var(--accent);
-		border-color: var(--accent);
+		color: var(--text);
+		border-color: var(--text-dim);
 	}
 	.kbd-cell:disabled {
 		cursor: default;
@@ -205,10 +205,7 @@
 		text-transform: lowercase;
 	}
 	.feedback-cell {
-		gap: 6px;
-	}
-	.feedback-cell:hover {
-		color: var(--accent);
+		gap: var(--space-sm);
 	}
 
 	.update-cell {

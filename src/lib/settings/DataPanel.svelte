@@ -177,14 +177,14 @@
 		list-style: none;
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
+		gap: var(--space-2xs);
 		font-family: var(--font-mono);
 		font-size: var(--font-size-xs);
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 	.btn-row {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 		flex-wrap: wrap;
 	}
 	.err {

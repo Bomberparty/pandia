@@ -245,7 +245,7 @@
 		width: 5ch;
 		padding: 0 0.5ch;
 		text-align: right;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		background: var(--bg-elev);
 		border-right: 1px solid var(--rule);
 		user-select: none;
@@ -265,22 +265,22 @@
 	}
 
 	.row[data-kind='add'] {
-		background: rgba(123, 166, 136, 0.14);
+		background: var(--success-soft);
 	}
 	.row[data-kind='add'] .sign {
 		color: var(--success);
 	}
 	.row[data-kind='del'] {
-		background: var(--accent-soft);
+		background: var(--danger-soft);
 	}
 	.row[data-kind='del'] .sign {
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.row[data-kind='add'] .ln {
-		background: rgba(123, 166, 136, 0.12);
+		background: var(--success-soft);
 	}
 	.row[data-kind='del'] .ln {
-		background: var(--accent-soft);
+		background: var(--danger-soft);
 	}
 
 	.row.gap {
@@ -298,11 +298,11 @@
 		background: var(--bg-elev-2);
 	}
 	.row.gap:hover .gap-label {
-		color: var(--accent);
+		color: var(--text);
 	}
 	.gap-label {
-		padding: 0.1rem 1ch 0.1rem 11ch;
-		color: var(--text-faint);
+		padding: var(--space-2xs) 1ch var(--space-2xs) 11ch;
+		color: var(--text-dim);
 		font-size: var(--font-size-xs);
 		letter-spacing: 0.04em;
 		user-select: none;
@@ -324,7 +324,7 @@
 		color: var(--syntax-punct);
 	}
 	.tok-pending {
-		color: var(--text-ghost);
+		color: var(--text-faint);
 		letter-spacing: 0.15em;
 	}
 
@@ -333,7 +333,7 @@
 	}
 
 	.err {
-		color: var(--accent);
+		color: var(--danger);
 		font-size: var(--font-size-sm);
 	}
 </style>

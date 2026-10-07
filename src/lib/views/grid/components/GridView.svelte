@@ -481,7 +481,7 @@
 		min-height: 0;
 		min-width: 0;
 		font-family: var(--font-mono);
-		font-size: 13px;
+		font-size: var(--font-size-base);
 		color: var(--text);
 	}
 
@@ -489,28 +489,27 @@
 		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.25rem 0.75rem;
-		background: var(--accent-soft);
-		border-bottom: 1px solid var(--accent-line);
-		font-size: 11.5px;
+		gap: var(--space-sm);
+		padding: var(--space-xs) var(--space-sm);
+		background: var(--bg-elev-2);
+		border-bottom: 1px solid var(--rule);
+		font-size: var(--font-size-sm);
 	}
 	.sel-count {
-		color: var(--accent);
+		color: var(--text);
 		font-weight: 700;
 	}
 	.sel-btn {
 		background: transparent;
 		border: 1px solid var(--rule-2);
 		color: var(--text-dim);
-		font-size: 11px;
-		padding: 0.1rem 0.6ch;
+		font-size: var(--font-size-sm);
+		padding: var(--space-2xs) 0.6ch;
 		cursor: pointer;
 		white-space: nowrap;
 	}
 	.sel-btn:hover {
-		color: var(--accent);
-		border-color: var(--accent);
+		color: var(--text);
 	}
 
 	.top {
@@ -524,8 +523,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--text-faint);
-		font-size: 11px;
+		color: var(--text-dim);
+		font-size: var(--font-size-sm);
 		border-right: 1px solid var(--rule-2);
 	}
 	.header {
@@ -577,8 +576,8 @@
 		align-items: center;
 		justify-content: flex-end;
 		padding: 0 0.6ch;
-		color: var(--text-faint);
-		font-size: 11px;
+		color: var(--text-dim);
+		font-size: var(--font-size-sm);
 		font-variant-numeric: tabular-nums;
 		background: transparent;
 		border: none;
@@ -589,7 +588,7 @@
 		background: var(--bg-elev-2);
 	}
 	.index-cell:hover {
-		color: var(--text-dim);
+		color: var(--text);
 		background: var(--bg-elev-2);
 	}
 	.index-cell.row-selected {
@@ -616,11 +615,10 @@
 		background: var(--bg-elev);
 	}
 	.row:hover {
-		background: var(--accent-soft);
+		background: var(--bg-elev-2);
 	}
 	.row.row-selected {
 		background: var(--accent-soft);
-		box-shadow: inset 0 0 0 9999px var(--accent-soft);
 	}
 
 	.cell {

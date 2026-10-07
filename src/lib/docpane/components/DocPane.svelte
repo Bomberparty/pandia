@@ -633,11 +633,11 @@
 	.vm {
 		display: inline-flex;
 		align-items: center;
-		padding: 0 14px;
+		padding: 0 var(--space-lg);
 		font-size: var(--font-size-xs);
-		letter-spacing: 0.16em;
+		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		background: transparent;
 		border: none;
 		border-right: var(--rule-width) solid var(--rule);
@@ -646,7 +646,7 @@
 		white-space: nowrap;
 	}
 	.vm:hover {
-		color: var(--text-dim);
+		color: var(--text);
 	}
 	.vm.active {
 		color: var(--text);
@@ -666,14 +666,10 @@
 		width: 5px;
 		height: 5px;
 		background: var(--accent);
-		margin-left: 8px;
+		margin-left: var(--space-sm);
 	}
 	.canvas-spacer {
 		flex: 1;
-	}
-
-	.dim:hover {
-		color: var(--accent);
 	}
 
 	.err-text {
@@ -684,10 +680,10 @@
 		flex-shrink: 0;
 		background: transparent;
 		border: none;
-		color: var(--accent);
-		font-size: 14px;
+		color: var(--text-dim);
+		font-size: var(--font-size-base);
 		line-height: 1;
-		padding: 0 0.3rem;
+		padding: 0 var(--space-xs);
 		cursor: pointer;
 	}
 	.err-dismiss:hover {
@@ -695,7 +691,7 @@
 	}
 
 	.info-head {
-		color: var(--accent-2);
+		color: var(--text-dim);
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
 		font-size: var(--font-size-xs);
@@ -703,7 +699,7 @@
 	}
 	.info-list {
 		display: flex;
-		gap: 0.4rem;
+		gap: var(--space-xs);
 		flex-wrap: wrap;
 		min-width: 0;
 	}
@@ -715,27 +711,27 @@
 	}
 	.info-item::after {
 		content: '·';
-		margin-left: 0.4rem;
+		margin-left: var(--space-xs);
 		color: var(--text-faint);
 	}
 	.info-item:last-child::after {
 		content: '';
 	}
 	.info-more {
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 	.info-dismiss {
 		margin-left: auto;
 		flex-shrink: 0;
 		background: transparent;
 		border: none;
-		padding: 0 0.5rem;
-		color: var(--text-faint);
-		font-size: 14px;
+		padding: 0 var(--space-sm);
+		color: var(--text-dim);
+		font-size: var(--font-size-base);
 		cursor: pointer;
 	}
 	.info-dismiss:hover {
-		color: var(--accent);
+		color: var(--text);
 	}
 
 	.tree-pane {

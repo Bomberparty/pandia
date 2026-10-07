@@ -394,8 +394,8 @@
 		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
-		padding: 0.3rem 0.75rem;
+		gap: var(--space-sm);
+		padding: var(--space-xs) var(--space-sm);
 		background: var(--bg-elev);
 		min-width: 0;
 		overflow: hidden;
@@ -405,8 +405,8 @@
 		flex-shrink: 0;
 	}
 	.navbar button {
-		font-size: 11px;
-		padding: 0.15rem 0.6rem;
+		font-size: var(--font-size-sm);
+		padding: var(--space-2xs) var(--space-sm);
 	}
 	.summary {
 		flex: 1 1 auto;
@@ -416,13 +416,13 @@
 	}
 	.counter {
 		font-variant-numeric: tabular-nums;
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 	.counter:empty {
 		display: none;
 	}
 	.err {
-		color: var(--accent);
+		color: var(--danger);
 	}
 
 	.stale-notice {
@@ -430,55 +430,54 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 1.5rem;
+		padding: var(--space-lg);
 		background: var(--bg);
 	}
 	.stale-card {
 		max-width: 460px;
-		padding: 1.25rem 1.5rem;
+		padding: var(--space-lg);
 		background: var(--bg-elev);
 		border: 1px solid var(--rule);
-		border-left: 3px solid var(--accent);
+		border-left: 3px solid var(--warning);
 		border-radius: 4px;
 		color: var(--text);
 	}
 	.stale-title {
-		font-size: 13px;
+		font-size: var(--font-size-base);
 		font-weight: 700;
-		color: var(--accent);
-		margin-bottom: 0.5rem;
+		color: var(--text);
+		margin-bottom: var(--space-sm);
 	}
 	.stale-body {
-		font-size: 12px;
+		font-size: var(--font-size-sm);
 		color: var(--text-dim);
 		line-height: 1.5;
-		margin: 0 0 1rem 0;
+		margin: 0 0 var(--space-md) 0;
 	}
 	.stale-exit {
-		font-size: 11px;
+		font-size: var(--font-size-sm);
 		letter-spacing: 0.08em;
-		padding: 0.25rem 0.8rem;
+		padding: var(--space-xs) var(--space-md);
 		background: transparent;
 		border: 1px solid var(--rule-2);
 		color: var(--text);
 		cursor: pointer;
 	}
 	.stale-exit:hover {
-		color: var(--accent);
-		border-color: var(--accent);
+		background: var(--bg-elev-2);
 	}
 
 	.sync-toggle {
-		font-size: 10.5px;
-		letter-spacing: 0.1em;
+		font-size: var(--font-size-xs);
+		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
-		padding: 0.15rem 0.6rem;
+		padding: var(--space-2xs) var(--space-sm);
 		background: transparent;
 		border: var(--rule-width) solid var(--rule);
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 	.sync-toggle:hover {
-		color: var(--text-dim);
+		color: var(--text);
 	}
 	.sync-toggle.on {
 		color: var(--accent);
@@ -489,19 +488,19 @@
 		display: flex;
 	}
 	.mode-seg button {
-		font-size: 10.5px;
-		letter-spacing: 0.1em;
+		font-size: var(--font-size-xs);
+		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
-		padding: 0.15rem 0.6rem;
+		padding: var(--space-2xs) var(--space-sm);
 		background: transparent;
 		border: var(--rule-width) solid var(--rule);
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 	.mode-seg button:not(:last-child) {
 		border-right: none;
 	}
 	.mode-seg button:hover {
-		color: var(--text-dim);
+		color: var(--text);
 	}
 	.mode-seg button.on {
 		color: var(--accent);
@@ -512,8 +511,8 @@
 		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.25rem 0.6rem;
+		gap: var(--space-sm);
+		padding: var(--space-xs) var(--space-sm);
 		background: var(--bg-elev);
 		white-space: nowrap;
 		overflow: hidden;
@@ -545,7 +544,7 @@
 		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
-		padding: 0.25rem 0.6rem;
+		padding: var(--space-xs) var(--space-sm);
 		background: var(--bg-elev);
 		white-space: nowrap;
 		overflow: hidden;
@@ -567,18 +566,18 @@
 		background: var(--bg-elev);
 	}
 	.empty-line {
-		padding: 0.5rem 0.75rem;
+		padding: var(--space-sm);
 	}
 
 	.entry {
 		display: grid;
 		grid-template-columns: 18px minmax(180px, 1fr) 2fr;
-		gap: 0.6rem;
+		gap: var(--space-sm);
 		align-items: center;
 		width: 100%;
 		text-align: left;
-		padding: 0.2rem 0.75rem;
-		font-size: 12px;
+		padding: var(--space-2xs) var(--space-sm);
+		font-size: var(--font-size-sm);
 		background: transparent;
 		border: none;
 		border-bottom: 1px solid var(--rule);
@@ -586,7 +585,7 @@
 		cursor: pointer;
 	}
 	.entry:hover {
-		background: rgba(255, 255, 255, 0.02);
+		background: var(--bg-elev-2);
 	}
 	.entry.active {
 		background: var(--accent-soft);
@@ -601,7 +600,7 @@
 		color: var(--success);
 	}
 	.glyph[data-kind='removed'] {
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.glyph[data-kind='changed'] {
 		color: var(--warning);
@@ -618,7 +617,7 @@
 	}
 	.preview {
 		display: flex;
-		gap: 0.4rem;
+		gap: var(--space-xs);
 		align-items: center;
 		color: var(--text-dim);
 		white-space: nowrap;

@@ -95,17 +95,17 @@
 	.block {
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
+		gap: var(--space-xs);
 	}
 	.label-row {
 		display: flex;
 		align-items: baseline;
-		gap: 0.6rem;
+		gap: var(--space-sm);
 	}
 	.row {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 	}
 	.url-row {
 		flex-wrap: nowrap;
@@ -132,7 +132,7 @@
 		resize: vertical;
 	}
 	.err {
-		color: var(--accent);
-		padding-top: 0.2rem;
+		color: var(--danger);
+		padding-top: var(--space-2xs);
 	}
 </style>

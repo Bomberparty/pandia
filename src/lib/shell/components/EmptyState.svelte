@@ -133,12 +133,12 @@
 		display: grid;
 		place-items: start center;
 		overflow-y: auto;
-		padding: 2.5rem 1rem 4rem;
+		padding: var(--space-2xl) var(--space-md) var(--space-3xl);
 	}
 	.inner {
 		display: flex;
 		flex-direction: column;
-		gap: 1.4rem;
+		gap: var(--space-lg);
 		width: 100%;
 		max-width: 560px;
 	}
@@ -146,22 +146,22 @@
 	.brand {
 		display: flex;
 		align-items: baseline;
-		gap: 0.8rem;
+		gap: var(--space-md);
 	}
 	.title {
-		font-size: 18px;
+		font-size: var(--font-size-title);
 		letter-spacing: var(--label-tracking);
 	}
 
 	.block {
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
+		gap: var(--space-xs);
 	}
 	.row {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 		flex-wrap: wrap;
 	}
 
@@ -194,9 +194,9 @@
 		position: absolute;
 		top: 6px;
 		right: 8px;
-		padding: 1px 6px;
-		font-size: 10px;
-		letter-spacing: 0.08em;
+		padding: 1px var(--space-sm);
+		font-size: var(--font-size-xs);
+		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
 		color: var(--accent);
 		background: var(--accent-soft);
@@ -208,6 +208,6 @@
 	.demo-row {
 		display: flex;
 		justify-content: center;
-		padding-top: 0.4rem;
+		padding-top: var(--space-xs);
 	}
 </style>

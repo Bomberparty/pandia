@@ -61,12 +61,12 @@
 	.recovery-head {
 		display: flex;
 		flex-direction: column;
-		gap: 0.2rem;
-		padding: 0.8rem 1rem;
+		gap: var(--space-2xs);
+		padding: var(--space-md);
 		border-bottom: var(--rule-width) solid var(--rule);
 	}
 	.rec-title {
-		color: var(--accent);
+		color: var(--text-dim);
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
 		font-size: var(--font-size-xs);
@@ -85,13 +85,13 @@
 	.rec-restore {
 		justify-content: space-between;
 		align-items: baseline;
-		gap: 0.8rem;
-		padding: 0.5rem 1rem;
+		gap: var(--space-md);
+		padding: var(--space-sm) var(--space-md);
 		color: var(--text);
 	}
 	.rec-restore:hover {
 		background: var(--bg-elev-2);
-		color: var(--accent);
+		color: var(--text);
 	}
 	.rec-name {
 		overflow: hidden;
@@ -100,12 +100,12 @@
 	}
 	.recovery-actions {
 		display: flex;
-		gap: 0.5rem;
-		padding: 0.7rem 1rem;
+		gap: var(--space-sm);
+		padding: var(--space-sm) var(--space-md);
 		border-top: var(--rule-width) solid var(--rule);
 	}
 
 	.rec-ghost {
-		padding: 0.3rem 0.9rem;
+		padding: var(--space-xs) var(--space-md);
 	}
 </style>

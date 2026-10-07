@@ -374,6 +374,6 @@
 		z-index: 1;
 	}
 	.err {
-		color: var(--accent);
+		color: var(--danger);
 	}
 </style>

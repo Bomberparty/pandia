@@ -157,23 +157,23 @@
 	.link-btn {
 		background: none;
 		border: none;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		cursor: pointer;
-		font-size: 11px;
+		font-size: var(--font-size-sm);
 		padding: 0;
 		text-decoration: underline dotted;
 		text-underline-offset: 2px;
 	}
 	.link-btn:hover {
-		color: var(--accent);
+		color: var(--text);
 	}
 	.col-filter {
 		width: 264px;
 		max-width: calc(100vw - 16px);
-		gap: 0.5rem;
+		gap: var(--space-sm);
 
-		padding: 0.6rem;
-		font-size: 12px;
+		padding: var(--space-sm);
+		font-size: var(--font-size-sm);
 	}
 	.cf-head {
 		display: flex;
@@ -195,12 +195,12 @@
 	.cf-op {
 		width: 100%;
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--font-size-sm);
 		background: var(--bg);
 		color: var(--text);
 		border: 1px solid var(--rule);
 		border-radius: 2px;
-		padding: 0.2rem 0.4rem;
+		padding: var(--space-2xs) var(--space-xs);
 		cursor: pointer;
 	}
 	.cf-op:focus {
@@ -209,8 +209,8 @@
 	}
 	.cf-presence {
 		display: flex;
-		gap: 0.4rem;
-		padding-top: 0.15rem;
+		gap: var(--space-xs);
+		padding-top: var(--space-2xs);
 		border-top: 1px solid var(--rule);
 	}
 	.cf-toggle {
@@ -219,8 +219,8 @@
 		border: 1px solid var(--rule);
 		border-radius: 2px;
 		color: var(--text-dim);
-		font-size: 11px;
-		padding: 0.2rem 0;
+		font-size: var(--font-size-sm);
+		padding: var(--space-2xs) 0;
 		cursor: pointer;
 	}
 	.cf-toggle:hover {
@@ -234,12 +234,12 @@
 	}
 	.col-filter input {
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--font-size-sm);
 		background: var(--bg);
 		color: var(--text);
 		border: 1px solid var(--rule);
 		border-radius: 2px;
-		padding: 0.2rem 0.4rem;
+		padding: var(--space-2xs) var(--space-xs);
 	}
 	.col-filter input:focus {
 		outline: none;
@@ -250,12 +250,12 @@
 		width: 100%;
 	}
 	.cf-hint {
-		color: var(--text-faint);
-		font-size: 10.5px;
+		color: var(--text-dim);
+		font-size: var(--font-size-xs);
 	}
 	.cf-state {
-		color: var(--text-faint);
-		padding: 0.4rem 0.2rem;
+		color: var(--text-dim);
+		padding: var(--space-xs) var(--space-2xs);
 	}
 	.cf-list {
 		display: flex;
@@ -269,7 +269,7 @@
 		align-items: center;
 		gap: 0.7ch;
 		min-height: 26px;
-		padding: 0.25rem 0.4rem;
+		padding: var(--space-xs);
 		cursor: pointer;
 		border-radius: 2px;
 	}
@@ -291,7 +291,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text);
-		font-size: 12.5px;
+		font-size: var(--font-size-base);
 	}
 	.cf-val.empty {
 		color: var(--text-dim);
@@ -300,7 +300,7 @@
 	.cf-count {
 		flex: 0 0 auto;
 		color: var(--text-dim);
-		font-size: 11px;
+		font-size: var(--font-size-sm);
 		font-variant-numeric: tabular-nums;
 	}
 </style>

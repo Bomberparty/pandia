@@ -249,11 +249,11 @@
 
 <style>
 	.empty {
-		padding: 0.6rem 0.2rem;
+		padding: var(--space-sm) var(--space-2xs);
 		text-align: center;
 	}
 	.err {
-		color: var(--accent);
+		color: var(--danger);
 	}
 
 	.scroller {
@@ -275,7 +275,7 @@
 
 	.caret {
 		width: 10px;
-		color: var(--accent);
+		color: var(--text-dim);
 		flex-shrink: 0;
 		text-align: center;
 	}
@@ -283,35 +283,35 @@
 		color: var(--syntax-punct);
 		width: 14px;
 		flex-shrink: 0;
-		font-size: 11px;
+		font-size: var(--font-size-sm);
 	}
 	.key {
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.key.idx {
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 	.ct {
-		color: var(--text-ghost);
+		color: var(--text-dim);
 		margin-left: auto;
-		font-size: 10px;
-		padding-left: 8px;
+		font-size: var(--font-size-xs);
+		padding-left: var(--space-sm);
 	}
 
 	.more-label {
-		color: var(--text-faint);
+		color: var(--text-dim);
 		font-style: italic;
 		text-decoration: underline dotted;
 		text-underline-offset: 2px;
 	}
 	.row.more:hover .more-label {
-		color: var(--accent);
+		color: var(--text);
 	}
 
 	.hint {
 		flex-shrink: 0;
-		padding: 0.4rem 0.5rem;
+		padding: var(--space-xs) var(--space-sm);
 		border-top: var(--rule-width) solid var(--rule);
 	}
 </style>

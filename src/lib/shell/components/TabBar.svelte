@@ -115,12 +115,7 @@
 				aria-selected={tab.id === activeTabId}
 				title={tab.sourceName ?? tab.label}
 			>
-				<span
-					class="tab-dot"
-					class:loaded={tabStatuses[tab.id] != null}
-					class:dirty={tabStatuses[tab.id]?.dirty}
-					aria-hidden="true"
-				></span>
+				<span class="tab-dot" class:dirty={tabStatuses[tab.id]?.dirty} aria-hidden="true"></span>
 				<span class="tab-label">{tab.label}</span>
 				<button
 					class="tab-close"
@@ -207,8 +202,8 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 0 16px;
+		gap: var(--space-md);
+		padding: 0 var(--space-lg);
 		font-size: var(--font-size-sm);
 		color: var(--text-dim);
 		border-right: var(--rule-width) solid var(--rule);
@@ -246,9 +241,6 @@
 		background: var(--text-faint);
 		flex-shrink: 0;
 	}
-	.tab-dot.loaded {
-		background: var(--accent-2);
-	}
 	.tab-dot.dirty {
 		background: var(--accent);
 	}
@@ -262,14 +254,14 @@
 	.tab-close {
 		border: none;
 		background: transparent;
-		padding: 0 0 0 4px;
-		font-size: 11px;
+		padding: 0 0 0 var(--space-xs);
+		font-size: var(--font-size-sm);
 		line-height: 1;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		cursor: pointer;
 	}
 	.tab-close:hover {
-		color: var(--accent);
+		color: var(--text);
 	}
 
 	.tab-new {
@@ -279,25 +271,25 @@
 		width: 32px;
 		border: none;
 		background: transparent;
-		font-size: 16px;
+		font-size: var(--font-size-lg);
 		line-height: 1;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		border-right: var(--rule-width) solid var(--rule);
 		cursor: pointer;
 		flex-shrink: 0;
 	}
 	.tab-new:hover {
-		color: var(--accent);
+		color: var(--text);
 	}
 	.tab-new:disabled {
-		color: var(--text-ghost);
+		color: var(--text-faint);
 		cursor: default;
 	}
 
 	.cap-warn {
 		display: flex;
 		align-items: center;
-		padding: 0 0.6rem;
+		padding: 0 var(--space-sm);
 	}
 
 	.tab-bar-actions {
@@ -309,14 +301,14 @@
 		height: 100%;
 		display: inline-flex;
 		align-items: center;
-		gap: 8px;
-		padding: 0 14px;
+		gap: var(--space-sm);
+		padding: 0 var(--space-lg);
 		background: transparent;
 		border: none;
 		border-left: var(--rule-width) solid var(--rule);
 		color: var(--text-dim);
 		font-size: var(--font-size-xs);
-		letter-spacing: 0.14em;
+		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
 		cursor: pointer;
 		white-space: nowrap;
@@ -326,16 +318,16 @@
 		background: var(--bg-elev);
 	}
 	.tba:disabled {
-		color: var(--text-ghost);
+		color: var(--text-faint);
 		cursor: default;
 	}
 	.tba:disabled:hover {
-		color: var(--text-ghost);
+		color: var(--text-faint);
 		background: transparent;
 	}
 	.tba .kbd {
-		color: var(--text-faint);
-		font-size: 10px;
+		color: var(--text-dim);
+		font-size: var(--font-size-xs);
 		letter-spacing: 0;
 	}
 	.tba.on {

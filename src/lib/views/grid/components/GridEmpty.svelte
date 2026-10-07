@@ -39,7 +39,7 @@
 <style>
 	.label {
 		color: var(--text-dim);
-		font-size: 11.5px;
+		font-size: var(--font-size-sm);
 		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
 	}

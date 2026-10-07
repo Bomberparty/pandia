@@ -24,6 +24,7 @@ export interface ShellCommandDeps {
 	showAbout: () => Promise<void> | void;
 	checkForUpdates: () => Promise<void> | void;
 	openWebsite: () => void;
+	openDiscussions: () => void;
 	reportIssue: () => void;
 
 	isDev: boolean;
@@ -124,6 +125,12 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 			run: deps.openWebsite,
 		},
 		{
+			id: 'help.discussions',
+			label: 'Join Discussions…',
+			category: 'Help',
+			run: deps.openDiscussions,
+		},
+		{
 			id: 'help.reportIssue',
 			label: 'Report Issue…',
 			category: 'Help',
@@ -153,6 +160,7 @@ export function buildMenuRouteMap(deps: ShellCommandDeps): Record<string, () => 
 		clear_recent_files: deps.clearRecents,
 		keyboard_shortcuts: deps.openHelp,
 		view_website: deps.openWebsite,
+		join_discussions: deps.openDiscussions,
 		report_issue: deps.reportIssue,
 		send_feedback: deps.openFeedback,
 		settings_appearance: () => deps.openSettings('appearance'),

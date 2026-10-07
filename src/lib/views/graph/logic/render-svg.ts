@@ -1,5 +1,6 @@
 import { HEADER_H, ROW_H, type CardRow, type LayoutResult, type PositionedCard } from './layout';
-import { hueColor, mixHex, type GraphTheme } from './theme';
+import { hueColor, type GraphTheme } from './theme';
+import { mixHex } from '$lib/util/color';
 import {
 	CARD_RADIUS,
 	FONT_PX,

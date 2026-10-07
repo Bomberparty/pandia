@@ -177,12 +177,12 @@
 		background: transparent;
 		border: none;
 		border-right: var(--rule-width) solid var(--rule);
-		color: var(--text-faint);
+		color: var(--text-dim);
 		font-size: var(--font-size-xs);
 		text-transform: uppercase;
-		letter-spacing: 0.16em;
+		letter-spacing: var(--label-tracking);
 		cursor: pointer;
-		padding: 0 0.4rem;
+		padding: 0 var(--space-xs);
 		min-width: 0;
 		position: relative;
 	}
@@ -190,7 +190,7 @@
 		border-right: none;
 	}
 	.tab:hover {
-		color: var(--text-dim);
+		color: var(--text);
 	}
 	.tab.active {
 		color: var(--text);
@@ -216,13 +216,13 @@
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		padding: 1rem 0.9rem;
+		padding: var(--space-md);
 	}
 
 	.placeholder {
 		display: flex;
 		flex-direction: column;
-		gap: 0.6rem;
+		gap: var(--space-sm);
 	}
 	.ph-hint {
 		color: var(--text-dim);
@@ -252,7 +252,9 @@
 		background: transparent;
 		transition: background 80ms linear;
 	}
-	.resize:hover::before,
+	.resize:hover::before {
+		background: var(--text-faint);
+	}
 	.resize:focus-visible::before,
 	.resize.dragging::before {
 		background: var(--accent);

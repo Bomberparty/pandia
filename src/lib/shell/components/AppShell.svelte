@@ -176,6 +176,8 @@
 		showAbout,
 		checkForUpdates,
 		openWebsite: () => void openInBrowser('https://www.pandia.app').catch(() => {}),
+		openDiscussions: () =>
+			void openInBrowser('https://github.com/hendurhance/pandia/discussions').catch(() => {}),
 		reportIssue: () =>
 			void openInBrowser('https://github.com/hendurhance/pandia/issues/new/choose').catch(() => {}),
 		isDev: SANDBOX_ENABLED,
@@ -703,7 +705,7 @@
 		z-index: 50;
 	}
 	.drop-hint {
-		padding: 0.5rem 1rem;
+		padding: var(--space-sm) var(--space-md);
 		background: var(--bg-elev);
 		border: var(--rule-width) solid var(--accent);
 		color: var(--accent);

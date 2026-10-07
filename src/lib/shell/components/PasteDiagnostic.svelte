@@ -72,14 +72,14 @@
 
 <style>
 	.diag {
-		/* --danger has no soft/line companions in tokens.css; derived here
-		   rather than adding globals for a single component. */
-		--diag-soft: rgba(229, 72, 77, 0.1);
+		/* --danger has no line companion in tokens.css; derived here
+		   rather than adding a global for a single component. */
+		--diag-soft: var(--danger-soft);
 		--diag-line: rgba(229, 72, 77, 0.45);
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
-		padding: 0.6rem 0.7rem;
+		gap: var(--space-xs);
+		padding: var(--space-sm);
 		border: 1px solid var(--diag-line);
 		background: var(--diag-soft);
 		border-radius: 4px;
@@ -89,7 +89,7 @@
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
-		gap: 0.5rem;
+		gap: var(--space-sm);
 	}
 	.title {
 		font-weight: 700;
@@ -99,7 +99,7 @@
 		background: none;
 		border: none;
 		padding: 0;
-		color: var(--text-faint);
+		color: var(--text-dim);
 		cursor: pointer;
 		flex: none;
 	}
@@ -109,7 +109,7 @@
 
 	.detail {
 		margin: 0;
-		font-size: 12px;
+		font-size: var(--font-size-sm);
 		line-height: 1.45;
 		color: var(--text-dim);
 	}
@@ -117,8 +117,8 @@
 	.excerpt {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		padding: 0.4rem 0.5rem;
+		gap: var(--space-2xs);
+		padding: var(--space-xs) var(--space-sm);
 		background: var(--bg);
 		border: 1px solid var(--rule);
 		border-radius: 3px;
@@ -126,7 +126,7 @@
 	}
 	.code {
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--font-size-sm);
 		white-space: pre;
 	}
 	.ok {
@@ -144,21 +144,21 @@
 		color: var(--text-faint);
 	}
 	.where {
-		font-size: 10px;
-		letter-spacing: 0.06em;
+		font-size: var(--font-size-xs);
+		letter-spacing: var(--label-tracking);
 		text-transform: uppercase;
-		color: var(--text-faint);
+		color: var(--text-dim);
 	}
 
 	.actions {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
-		padding-top: 0.1rem;
+		gap: var(--space-sm);
+		padding-top: var(--space-2xs);
 	}
 	.fix {
-		padding: 3px 10px;
-		font-size: 12px;
+		padding: var(--space-xs) var(--space-md);
+		font-size: var(--font-size-sm);
 		border: 1px solid var(--accent-line);
 		background: var(--accent-soft);
 		color: var(--accent);
@@ -167,21 +167,21 @@
 	}
 	.fix:hover:not(:disabled) {
 		background: var(--accent);
-		color: var(--bg);
+		color: var(--on-accent);
 	}
 	.fix:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
 	.warn {
-		font-size: 11px;
-		color: var(--text-faint);
+		font-size: var(--font-size-sm);
+		color: var(--text-dim);
 	}
 	.warn-list {
 		margin: 0;
 		padding-left: 1rem;
-		font-size: 11px;
-		color: var(--text-faint);
+		font-size: var(--font-size-sm);
+		color: var(--text-dim);
 	}
 	.more {
 		list-style: none;

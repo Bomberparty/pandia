@@ -354,6 +354,8 @@ fn build_menu(
         .accelerator("CmdOrCtrl+/")
         .build(app)?;
     let view_website = MenuItemBuilder::with_id("view_website", "View Website").build(app)?;
+    let join_discussions =
+        MenuItemBuilder::with_id("join_discussions", "Join Discussions…").build(app)?;
     let report_issue = MenuItemBuilder::with_id("report_issue", "Report Issue…").build(app)?;
     let send_feedback = MenuItemBuilder::with_id("send_feedback", "Send Feedback…").build(app)?;
 
@@ -361,6 +363,7 @@ fn build_menu(
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&keyboard_shortcuts)
         .item(&view_website)
+        .item(&join_discussions)
         .item(&report_issue)
         .item(&send_feedback)
         .separator()
@@ -372,6 +375,7 @@ fn build_menu(
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&keyboard_shortcuts)
         .item(&view_website)
+        .item(&join_discussions)
         .item(&report_issue)
         .item(&send_feedback)
         .build()?;
