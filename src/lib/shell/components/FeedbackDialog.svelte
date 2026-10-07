@@ -12,16 +12,7 @@
 		const t = setTimeout(() => shareBtn?.focus(), 0);
 		return () => clearTimeout(t);
 	});
-
-	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			onShare();
-		}
-	}
 </script>
-
-<svelte:window onkeydown={onKeydown} />
 
 <Dialog {onClose}>
 	<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="feedback-title">

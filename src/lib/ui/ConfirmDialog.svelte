@@ -28,16 +28,7 @@
 		const t = setTimeout(() => primaryBtn?.focus(), 0);
 		return () => clearTimeout(t);
 	});
-
-	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			onPick('primary');
-		}
-	}
 </script>
-
-<svelte:window onkeydown={onKeydown} />
 
 <Dialog onClose={() => onPick('cancel')}>
 	<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
@@ -99,7 +90,11 @@
 		color: var(--bg);
 	}
 	.btn-danger:hover {
-		background: var(--danger-hover, var(--accent-line));
-		border-color: var(--danger-hover, var(--accent-line));
+		background: var(--bg);
+		border-color: var(--danger);
+		color: var(--danger);
+	}
+	.btn-danger:hover .hint {
+		color: var(--danger);
 	}
 </style>

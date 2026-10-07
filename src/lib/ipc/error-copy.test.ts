@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { IpcError, type IpcErrorKind } from './error';
 import { describeError } from './error-copy';
+import type { FileOp, IoProblem } from './bindings';
 
 describe('describeError — backend kinds', () => {
 	it('tooLarge formats sizes as human bytes and states the honest fix', () => {
@@ -66,7 +67,7 @@ describe('describeError — backend kinds', () => {
 		);
 	});
 
-	it('edit, schema, export, io lead with plain language and keep the detail', () => {
+	it('edit, schema, export lead with plain language and keep the detail', () => {
 		expect(
 			describeError(
 				new IpcError('edit', 'edit error: key "foo" already exists', {
@@ -86,13 +87,53 @@ describe('describeError — backend kinds', () => {
 				}),
 			),
 		).toBe('Export failed: unsupported value.');
-		expect(
-			describeError(
-				new IpcError('io', 'io error: No such file or directory (os error 2)', {
-					detail: 'No such file or directory (os error 2)',
-				}),
-			),
-		).toBe("Couldn't read or write the file: No such file or directory (os error 2).");
+	});
+
+	const fileError = (problem: IoProblem, op: FileOp | null, detail = 'raw system text') =>
+		describeError(
+			new IpcError('io', `io error: ${detail}`, {
+				detail,
+				io: { problem, op, file: '/Users/me/data.json' },
+			}),
+		);
+
+	it('file errors name the file, say what went wrong and how to fix it, never the OS code', () => {
+		expect(fileError('missing', 'open')).toBe(
+			"Couldn't open “data.json” — the file no longer exists. It may have been moved, renamed, or deleted.",
+		);
+		expect(fileError('missing', 'save')).toBe(
+			"Couldn't save “data.json” — the folder no longer exists. Choose another location.",
+		);
+		expect(fileError('noPermission', 'open')).toBe(
+			"Couldn't open “data.json” — Pandia doesn't have permission to read it.",
+		);
+		expect(fileError('noPermission', 'export')).toBe(
+			"Couldn't export to “data.json” — Pandia doesn't have permission to write there. Choose another location.",
+		);
+		expect(fileError('isFolder', 'open')).toBe(
+			"Couldn't open “data.json” — it's a folder, not a file.",
+		);
+		expect(fileError('notText', 'open')).toBe(
+			"Couldn't open “data.json” — it isn't UTF-8 text, so it can't be read as JSON.",
+		);
+		expect(fileError('diskFull', 'save')).toBe(
+			"Couldn't save “data.json” — the disk is full. Free up some space and try again.",
+		);
+		expect(fileError('readOnly', 'save')).toBe(
+			"Couldn't save “data.json” — that location is read-only. Choose another location.",
+		);
+	});
+
+	it('an unrecognised file problem keeps the system detail as a last resort', () => {
+		expect(fileError('other', 'open', 'Too many open files (os error 24)')).toBe(
+			"Couldn't open “data.json”: Too many open files (os error 24).",
+		);
+	});
+
+	it('an io error with no file behind it is an internal failure, not a file problem', () => {
+		expect(describeError(new IpcError('io', 'task 7 panicked'))).toBe(
+			'Something went wrong inside Pandia. Try again, and use Feedback to report it if it keeps happening.',
+		);
 	});
 
 	it('cancelled stays terse', () => {

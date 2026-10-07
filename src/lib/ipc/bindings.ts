@@ -158,6 +158,8 @@ export type ExportPreview = {
 	truncated: boolean,
 };
 
+export type FileOp = "open" | "save" | "export";
+
 export type FilterOp = "contains" | "notContains" | "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "isEmpty" | "isNotEmpty" | "in" | "notIn" | "startsWith";
 
 export type FilteredRowsJson = {
@@ -186,6 +188,14 @@ export type HistoryView = {
 	redo: OpDescription[],
 	cap: number,
 };
+
+export type IoInfo = {
+	problem: IoProblem,
+	op: FileOp | null,
+	file: string | null,
+};
+
+export type IoProblem = "missing" | "noPermission" | "isFolder" | "notText" | "diskFull" | "readOnly" | "other";
 
 export type LineDiffResult = {
 	hunks: LineHunk[],
@@ -308,5 +318,6 @@ export type WireError = {
 	path: Path | null,
 	actual: number | null,
 	limit: number | null,
+	io: IoInfo | null,
 };
 

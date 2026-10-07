@@ -497,7 +497,7 @@
 	}
 	.sel-count {
 		color: var(--accent);
-		font-weight: 600;
+		font-weight: 700;
 	}
 	.sel-btn {
 		background: transparent;
@@ -586,7 +586,7 @@
 		cursor: pointer;
 	}
 	.index-cell.zebra {
-		background: rgba(255, 255, 255, 0.025);
+		background: var(--bg-elev-2);
 	}
 	.index-cell:hover {
 		color: var(--text-dim);
@@ -613,7 +613,7 @@
 		left: 0;
 	}
 	.row.zebra {
-		background: rgba(255, 255, 255, 0.025);
+		background: var(--bg-elev);
 	}
 	.row:hover {
 		background: var(--accent-soft);

@@ -302,7 +302,7 @@
 	.label :global(mark) {
 		background: transparent;
 		color: var(--accent-2);
-		font-weight: 600;
+		font-weight: 700;
 	}
 	.row.selected .label :global(mark) {
 		color: var(--accent);

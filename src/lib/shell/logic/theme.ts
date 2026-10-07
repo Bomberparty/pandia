@@ -138,8 +138,8 @@ export function applyFontSizeBase(px: number): void {
 	const clamped = Math.max(10, Math.min(20, px));
 	const r = document.documentElement;
 	r.style.setProperty('--font-size-base', `${clamped}px`);
-	r.style.setProperty('--font-size-sm', `${((clamped * 11) / 12.5).toFixed(2)}px`);
-	r.style.setProperty('--font-size-xs', `${((clamped * 10.5) / 12.5).toFixed(2)}px`);
+	r.style.setProperty('--font-size-sm', `${((clamped * 11.5) / 13).toFixed(2)}px`);
+	r.style.setProperty('--font-size-xs', `${((clamped * 10.5) / 13).toFixed(2)}px`);
 	emitAppearanceChange();
 }
 

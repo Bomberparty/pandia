@@ -148,7 +148,8 @@
 				>restore appearance defaults</button
 			>
 			<div class="text-sm dim">
-				Resets theme, font, size, and density to terminal-noir defaults.
+				Resets the theme to Auto (follows your system), and font, size, and density to their
+				defaults.
 			</div>
 		</div>
 	</section>

@@ -444,7 +444,7 @@
 	}
 	.stale-title {
 		font-size: 13px;
-		font-weight: 600;
+		font-weight: 700;
 		color: var(--accent);
 		margin-bottom: 0.5rem;
 	}
@@ -594,7 +594,7 @@
 	}
 
 	.glyph {
-		font-weight: 600;
+		font-weight: 700;
 		text-align: center;
 	}
 	.glyph[data-kind='added'] {
@@ -607,7 +607,7 @@
 		color: var(--warning);
 	}
 	.glyph[data-kind='moved'] {
-		color: var(--mauve);
+		color: var(--syntax-boolean);
 	}
 
 	.path {

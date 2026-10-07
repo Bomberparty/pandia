@@ -155,7 +155,7 @@
 	}
 	.grid-toolbar .counts b {
 		color: var(--text);
-		font-weight: 600;
+		font-weight: 700;
 	}
 	.grid-toolbar .fetching {
 		color: var(--accent);
@@ -311,7 +311,7 @@
 	}
 	.chip-key {
 		color: var(--text);
-		font-weight: 600;
+		font-weight: 700;
 	}
 	.chip-sum {
 		color: var(--text-dim);

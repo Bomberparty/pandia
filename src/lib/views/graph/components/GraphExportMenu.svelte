@@ -85,7 +85,7 @@
 		color: var(--accent);
 	}
 	.name {
-		font-weight: 600;
+		font-weight: 700;
 		font-size: 13px;
 	}
 	.hint {

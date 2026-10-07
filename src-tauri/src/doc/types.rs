@@ -157,14 +157,81 @@ pub enum DocError {
     #[error("export error: {0}")]
     Export(String),
 
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("io error: {source}")]
+    Io {
+        source: std::io::Error,
+        op: Option<FileOp>,
+        file: Option<String>,
+    },
 
     #[error("cancelled")]
     Cancelled,
 }
 
+impl DocError {
+    pub fn file(op: FileOp, file: &std::path::Path, source: std::io::Error) -> Self {
+        DocError::Io {
+            source,
+            op: Some(op),
+            file: Some(file.to_string_lossy().into_owned()),
+        }
+    }
+}
+
+impl From<std::io::Error> for DocError {
+    fn from(source: std::io::Error) -> Self {
+        DocError::Io {
+            source,
+            op: None,
+            file: None,
+        }
+    }
+}
+
 pub type DocResult<T> = Result<T, DocError>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FileOp {
+    Open,
+    Save,
+    Export,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum IoProblem {
+    Missing,
+    NoPermission,
+    IsFolder,
+    NotText,
+    DiskFull,
+    ReadOnly,
+    Other,
+}
+
+impl From<std::io::ErrorKind> for IoProblem {
+    fn from(kind: std::io::ErrorKind) -> Self {
+        use std::io::ErrorKind as K;
+        match kind {
+            K::NotFound => IoProblem::Missing,
+            K::PermissionDenied => IoProblem::NoPermission,
+            K::IsADirectory => IoProblem::IsFolder,
+            K::InvalidData => IoProblem::NotText,
+            K::StorageFull => IoProblem::DiskFull,
+            K::ReadOnlyFilesystem => IoProblem::ReadOnly,
+            _ => IoProblem::Other,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IoInfo {
+    pub problem: IoProblem,
+    pub op: Option<FileOp>,
+    pub file: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -175,6 +242,7 @@ pub struct WireError {
     pub path: Option<Path>,
     pub actual: Option<u64>,
     pub limit: Option<u64>,
+    pub io: Option<Box<IoInfo>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -211,8 +279,18 @@ impl From<DocError> for WireError {
             DocError::Edit(s) => (ErrorKind::Edit, Some(s.clone()), None, None, None),
             DocError::Schema(s) => (ErrorKind::Schema, Some(s.clone()), None, None, None),
             DocError::Export(s) => (ErrorKind::Export, Some(s.clone()), None, None, None),
-            DocError::Io(err) => (ErrorKind::Io, Some(err.to_string()), None, None, None),
+            DocError::Io { source, .. } => {
+                (ErrorKind::Io, Some(source.to_string()), None, None, None)
+            }
             DocError::Cancelled => (ErrorKind::Cancelled, None, None, None, None),
+        };
+        let io = match &e {
+            DocError::Io { source, op, file } => Some(Box::new(IoInfo {
+                problem: source.kind().into(),
+                op: *op,
+                file: file.clone(),
+            })),
+            _ => None,
         };
         WireError {
             kind,
@@ -221,6 +299,7 @@ impl From<DocError> for WireError {
             path,
             actual,
             limit,
+            io,
         }
     }
 }

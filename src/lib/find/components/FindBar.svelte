@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/ui/Icon.svelte';
-	import { ChevronDown, ChevronRight } from '@lucide/svelte';
+	import { ChevronRight } from '@lucide/svelte';
 	import SearchField from '$lib/ui/SearchField.svelte';
 	interface Props {
 		open: boolean;
@@ -74,9 +74,7 @@
 			aria-label={replaceOpen ? 'hide replace' : 'show replace'}
 			title={replaceOpen ? 'hide replace' : 'show replace'}
 		>
-			<span class="chev" class:open={replaceOpen}
-				><Icon icon={replaceOpen ? ChevronDown : ChevronRight} size="xs" /></span
-			>
+			<span class="chev" class:open={replaceOpen}><Icon icon={ChevronRight} size="xs" /></span>
 		</button>
 		<div class="cols">
 			<div class="row">

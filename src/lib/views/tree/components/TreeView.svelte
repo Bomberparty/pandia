@@ -525,7 +525,7 @@
 	}
 	.r[data-diff='moved'] {
 		background: rgba(168, 132, 196, 0.16);
-		box-shadow: inset 2px 0 0 var(--mauve);
+		box-shadow: inset 2px 0 0 var(--syntax-boolean);
 	}
 
 	.r[data-invalid='ancestor'] {

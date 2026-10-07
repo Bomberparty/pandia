@@ -20,7 +20,7 @@ const STORE_KEY = 'appearance';
 const DEFAULT_THEME_ID = DEFAULT_THEME.id;
 const DEFAULT_AUTO_MODE = true;
 const DEFAULT_MONO = 'IBM Plex Mono';
-const DEFAULT_FONT_SIZE = 12.5;
+const DEFAULT_FONT_SIZE = 13;
 const DEFAULT_DENSITY: Density = 'normal';
 
 export const FONT_SIZE_MIN = 11;

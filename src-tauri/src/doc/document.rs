@@ -20,7 +20,7 @@ use super::schema_validate::{
 };
 use super::search::{SearchHit, SearchOptions};
 use super::typegen::TypegenLang;
-use super::types::{DocError, DocResult, NodeKind, NodeView, Path, PathSegment};
+use super::types::{DocError, DocResult, FileOp, NodeKind, NodeView, Path, PathSegment};
 use super::wire::LosslessText;
 
 const LAZY_THRESHOLD_BYTES: u64 = 10 * 1024 * 1024;
@@ -271,9 +271,11 @@ impl Document {
 
     pub fn from_file<P: AsRef<FsPath>>(path: P) -> DocResult<Self> {
         let p = path.as_ref();
-        let size = std::fs::metadata(p)?.len();
+        let size = std::fs::metadata(p)
+            .map_err(|e| DocError::file(FileOp::Open, p, e))?
+            .len();
         Self::ensure_within_max(size)?;
-        let text = std::fs::read_to_string(p)?;
+        let text = std::fs::read_to_string(p).map_err(|e| DocError::file(FileOp::Open, p, e))?;
         let path_str = p.to_string_lossy().into_owned();
         let mut doc = Self::from_text(&text, Some(path_str.clone()))?;
         doc.file_path = Some(path_str);
@@ -308,7 +310,8 @@ impl Document {
     }
 
     pub fn export_to_file(&self, format: ExportFormat, path: &str) -> DocResult<()> {
-        let file = std::fs::File::create(path)?;
+        let file = std::fs::File::create(path)
+            .map_err(|e| DocError::file(FileOp::Export, FsPath::new(path), e))?;
         let mut w = std::io::BufWriter::new(file);
         match format {
             ExportFormat::Json | ExportFormat::JsonMin => {
@@ -377,7 +380,8 @@ impl Document {
             },
             _ => self.serialize()?,
         };
-        std::fs::write(&target, text)?;
+        std::fs::write(&target, text)
+            .map_err(|e| DocError::file(FileOp::Save, FsPath::new(&target), e))?;
         self.comments_stripped = false;
         self.file_path = Some(target.clone());
         self.source_path = Some(target.clone());
@@ -2081,6 +2085,43 @@ mod tests {
                 serde_json::json!({"name": "David"}),
             ]
         );
+    }
+
+    #[test]
+    fn file_errors_carry_operation_path_and_problem() {
+        use crate::doc::types::{FileOp, IoProblem, WireError};
+
+        let dir = std::env::temp_dir().join(format!("pandia-io-{}", std::process::id()));
+        let missing = dir.join("missing.json");
+        let io = WireError::from(Document::from_file(&missing).unwrap_err())
+            .io
+            .expect("file errors carry io context");
+        assert_eq!(io.problem, IoProblem::Missing);
+        assert_eq!(io.op, Some(FileOp::Open));
+        assert_eq!(io.file.as_deref(), Some(missing.to_str().unwrap()));
+
+        let target = dir.join("no-such-folder").join("out.json");
+        let mut d = doc(r#"{"a":1}"#);
+        let err = d
+            .save(Some(target.to_string_lossy().into_owned()))
+            .unwrap_err();
+        let io = WireError::from(err).io.unwrap();
+        assert_eq!(
+            (io.problem, io.op),
+            (IoProblem::Missing, Some(FileOp::Save))
+        );
+
+        std::fs::create_dir_all(&dir).unwrap();
+        let binary = dir.join("binary.json");
+        std::fs::write(&binary, [0xff, 0xfe, 0x00, 0x7b]).unwrap();
+        let io = WireError::from(Document::from_file(&binary).unwrap_err())
+            .io
+            .unwrap();
+        assert_eq!(
+            (io.problem, io.op),
+            (IoProblem::NotText, Some(FileOp::Open))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

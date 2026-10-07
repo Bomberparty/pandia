@@ -92,7 +92,7 @@
 		gap: 0.5rem;
 	}
 	.title {
-		font-weight: 600;
+		font-weight: 700;
 		color: var(--danger);
 	}
 	.dismiss {
@@ -120,7 +120,7 @@
 		gap: 2px;
 		padding: 0.4rem 0.5rem;
 		background: var(--bg);
-		border: 1px solid var(--line);
+		border: 1px solid var(--rule);
 		border-radius: 3px;
 		overflow-x: auto;
 	}

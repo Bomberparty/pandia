@@ -1,8 +1,14 @@
 import { IpcError } from './error';
+import type { FileOp, IoProblem } from './bindings';
 import { fmtBytes } from '$lib/util/format';
-import { pathToString } from '$lib/util/path';
+import { basename, pathToString } from '$lib/util/path';
 
 const FALLBACK = 'Something went wrong.';
+
+const INTERNAL =
+	'Something went wrong inside Pandia. Try again, and use Feedback to report it if it keeps happening.';
+
+const VERB: Record<FileOp, string> = { open: 'open', save: 'save', export: 'export to' };
 
 function sentence(s: string): string {
 	return /[.!?]$/.test(s) ? s : `${s}.`;
@@ -46,10 +52,42 @@ function describeIpc(e: IpcError): string {
 		case 'export':
 			return withDetail('Export failed', e.detail);
 		case 'io':
-			return withDetail("Couldn't read or write the file", e.detail);
+			return describeIo(e);
 		case 'cancelled':
 			return 'Cancelled.';
 		default:
 			return e.message.trim() ? sentence(e.message.trim()) : FALLBACK;
+	}
+}
+
+function describeIo(e: IpcError): string {
+	if (!e.io) return INTERNAL;
+	const { problem, op, file } = e.io;
+	const target = file ? `“${basename(file)}”` : 'a file';
+	const lead = op ? `Couldn't ${VERB[op]} ${target}` : `Couldn't use ${target}`;
+	const reason = ioReason(problem, op === 'save' || op === 'export');
+	return reason ? `${lead} — ${reason}` : withDetail(lead, e.detail);
+}
+
+function ioReason(problem: IoProblem, writing: boolean): string | null {
+	switch (problem) {
+		case 'missing':
+			return writing
+				? 'the folder no longer exists. Choose another location.'
+				: 'the file no longer exists. It may have been moved, renamed, or deleted.';
+		case 'noPermission':
+			return writing
+				? "Pandia doesn't have permission to write there. Choose another location."
+				: "Pandia doesn't have permission to read it.";
+		case 'isFolder':
+			return "it's a folder, not a file.";
+		case 'notText':
+			return "it isn't UTF-8 text, so it can't be read as JSON.";
+		case 'diskFull':
+			return 'the disk is full. Free up some space and try again.';
+		case 'readOnly':
+			return 'that location is read-only. Choose another location.';
+		case 'other':
+			return null;
 	}
 }
