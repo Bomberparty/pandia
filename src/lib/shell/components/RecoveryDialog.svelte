@@ -2,58 +2,69 @@
 	import type { BackupRecord } from '$lib/ipc/bindings';
 	import { basename } from '$lib/util/path';
 	import { fmtBytes } from '$lib/util/format';
+	import Dialog from '$lib/ui/Dialog.svelte';
 
 	let {
 		records,
 		onRestore,
 		onRestoreAll,
 		onDiscard,
+		onLater,
 	}: {
 		records: BackupRecord[];
 		onRestore: (rec: BackupRecord) => void;
 		onRestoreAll: () => void;
 		onDiscard: () => void;
+		onLater: () => void;
 	} = $props();
+
+	let primaryBtn: HTMLButtonElement | undefined = $state();
+
+	$effect(() => {
+		const t = setTimeout(() => primaryBtn?.focus(), 0);
+		return () => clearTimeout(t);
+	});
 
 	function recoveryLabel(rec: BackupRecord): string {
 		return basename(rec.displayName ?? rec.originalPath ?? 'untitled');
 	}
 </script>
 
-<div class="dialog recovery" role="dialog" aria-label="recover unsaved work">
-	<div class="recovery-head">
-		<span class="rec-title">unsaved work recovered</span>
-		<span class="dim text-xs">
-			{records.length} document{records.length === 1 ? '' : 's'} from a previous session had unsaved changes
-		</span>
+<Dialog onClose={onLater}>
+	<div class="dialog recovery" role="dialog" aria-modal="true" aria-label="recover unsaved work">
+		<div class="recovery-head">
+			<span class="rec-title">unsaved work recovered</span>
+			<span class="dim text-xs">
+				{records.length} document{records.length === 1 ? '' : 's'} from a previous session had unsaved
+				changes
+			</span>
+		</div>
+		<ul class="recovery-list">
+			{#each records as rec (rec.docId)}
+				<li class="recovery-item">
+					<button
+						class="list-row rec-restore"
+						onclick={() => onRestore(rec)}
+						title={rec.originalPath ?? rec.displayName ?? 'untitled'}
+					>
+						<span class="rec-name">{recoveryLabel(rec)}</span>
+						<span class="dim text-xs">{fmtBytes(rec.content.length)}</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		<div class="recovery-actions">
+			<button class="btn btn-ghost rec-ghost" onclick={onDiscard}>discard all</button>
+			<button class="btn" onclick={onLater}>later<span class="hint">esc</span></button>
+			<button bind:this={primaryBtn} class="btn btn-primary" onclick={onRestoreAll}
+				>restore all</button
+			>
+		</div>
 	</div>
-	<ul class="recovery-list">
-		{#each records as rec (rec.docId)}
-			<li class="recovery-item">
-				<button
-					class="list-row rec-restore"
-					onclick={() => onRestore(rec)}
-					title={rec.originalPath ?? rec.displayName ?? 'untitled'}
-				>
-					<span class="rec-name">{recoveryLabel(rec)}</span>
-					<span class="dim text-xs">{fmtBytes(rec.content.length)}</span>
-				</button>
-			</li>
-		{/each}
-	</ul>
-	<div class="recovery-actions">
-		<button class="btn btn-primary" onclick={onRestoreAll}>restore all</button>
-		<button class="btn rec-ghost" onclick={onDiscard}>discard all</button>
-	</div>
-</div>
+</Dialog>
 
 <style>
 	.recovery {
-		position: absolute;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		z-index: 60;
 		min-width: 360px;
 		max-width: 520px;
 		max-height: 70vh;
@@ -106,6 +117,11 @@
 	}
 
 	.rec-ghost {
+		margin-right: auto;
 		padding: var(--space-xs) var(--space-md);
+	}
+	.hint {
+		color: var(--text-dim);
+		margin-left: var(--space-xs);
 	}
 </style>

@@ -57,7 +57,7 @@
 <Popover x={anchor.left} y={anchor.top} width={264} {anchorEl} onClose={actions.close}>
 	<div class="col-filter menu">
 		<div class="cf-head">
-			<span class="label">{view.key}</span>
+			<span class="cf-key">{view.key}</span>
 			{#if view.current}
 				<button class="link-btn" onclick={actions.clear}>clear</button>
 			{/if}
@@ -179,6 +179,11 @@
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
+	}
+	.cf-key {
+		color: var(--text);
+		font-size: var(--font-size-sm);
+		font-weight: 700;
 	}
 	.cf-range {
 		display: flex;

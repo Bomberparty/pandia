@@ -192,11 +192,6 @@
 		color: var(--text);
 		background: var(--bg-elev-3);
 	}
-	.dock-btn:focus-visible {
-		outline: none;
-		color: var(--accent);
-		background: var(--bg-elev-3);
-	}
 	.dock-btn.on {
 		color: var(--accent);
 		background: var(--bg-elev-3);

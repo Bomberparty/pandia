@@ -26,6 +26,10 @@
 	border-color: var(--accent-hover);
 	color: var(--on-accent);
 }
+.btn-primary:disabled {
+	background: transparent;
+	border-color: var(--rule);
+}
 
 .btn-danger {
 	color: var(--danger);

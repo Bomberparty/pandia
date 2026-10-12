@@ -599,6 +599,7 @@
 			onRestore={restoreOne}
 			onRestoreAll={restoreAll}
 			onDiscard={discardRecovery}
+			onLater={() => (recovery = [])}
 		/>
 	{/if}
 

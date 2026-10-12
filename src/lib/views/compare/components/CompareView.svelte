@@ -173,6 +173,7 @@
 
 	let chPx = $state(0);
 	let headW = $state(0);
+	let syncW = $state(0);
 	let inlineW = $state(0);
 
 	function measureCh(el: HTMLElement) {
@@ -186,6 +187,9 @@
 
 	const paneBudget = $derived(
 		chPx > 0 && headW > 0 ? Math.max(8, Math.floor((headW - 16) / chPx) - 5) : Infinity,
+	);
+	const rightBudget = $derived(
+		paneBudget === Infinity ? Infinity : Math.max(8, paneBudget - Math.ceil(syncW / chPx) - 1),
 	);
 	const inlineBudget = $derived(
 		chPx > 0 && inlineW > 0 ? Math.max(8, Math.floor(((inlineW - 40) / chPx - 8) / 2)) : Infinity,
@@ -212,42 +216,44 @@
 	});
 </script>
 
+{#snippet syncToggle()}
+	<button
+		class="btn sync-toggle"
+		class:btn-active={syncScroll}
+		bind:clientWidth={syncW}
+		onclick={() => (syncScroll = !syncScroll)}
+		title="Sync scroll between panes"
+		><Icon icon={ArrowDownUp} size="xs" /> Sync scroll{syncScroll ? ' · on' : ' · off'}</button
+	>
+{/snippet}
+
 <div class="compare-root">
 	<div class="navbar rule-b">
-		<button onclick={prev} disabled={navDisabled} title="Previous diff">← Prev</button>
-		<button onclick={next} disabled={navDisabled} title="Next diff">Next →</button>
+		<div class="seg" role="group" aria-label="Diff layout">
+			<button
+				class:active={mode === 'split'}
+				onclick={() => (mode = 'split')}
+				title="Side-by-side code panes">Side-by-side</button
+			>
+			<button
+				class:active={mode === 'tree'}
+				onclick={() => (mode = 'tree')}
+				title="Side-by-side trees with diff highlights">Tree</button
+			>
+			<button
+				class:active={mode === 'inline'}
+				onclick={() => (mode = 'inline')}
+				title="Unified single-column diff">Inline</button
+			>
+		</div>
+		<button class="btn" onclick={prev} disabled={navDisabled} title="Previous diff">← Prev</button>
+		<button class="btn" onclick={next} disabled={navDisabled} title="Next diff">Next →</button>
 		<span class="dim text-sm counter">
 			{#if mode === 'inline'}
 				{#if inlineHunkCount > 0}#{activeHunk + 1} / {inlineHunkCount}{/if}
 			{:else if mode === 'split' && activeIndex >= 0}#{activeIndex + 1} / {entries.length}{/if}
 		</span>
 		<span class="dim text-sm summary" title={summaryText}>{summaryText}</span>
-		<div class="mode-seg" role="group" aria-label="Diff layout">
-			<button
-				class:on={mode === 'split'}
-				onclick={() => (mode = 'split')}
-				title="Side-by-side code panes">Side-by-side</button
-			>
-			<button
-				class:on={mode === 'tree'}
-				onclick={() => (mode = 'tree')}
-				title="Side-by-side trees with diff highlights">Tree</button
-			>
-			<button
-				class:on={mode === 'inline'}
-				onclick={() => (mode = 'inline')}
-				title="Unified single-column diff">Inline</button
-			>
-		</div>
-		{#if mode === 'split' || mode === 'tree'}
-			<button
-				class="sync-toggle"
-				class:on={syncScroll}
-				onclick={() => (syncScroll = !syncScroll)}
-				title="Sync scroll between panes"
-				><Icon icon={ArrowDownUp} size="xs" /> Sync scroll{syncScroll ? ' · on' : ' · off'}</button
-			>
-		{/if}
 	</div>
 
 	{#if staleSource}
@@ -295,8 +301,9 @@
 				<div class="pane">
 					<div class="pane-head rule-b">
 						<span class="dim text-sm file" title={rightName}
-							>R · {truncatePathMiddle(rightName, paneBudget)}</span
+							>R · {truncatePathMiddle(rightName, rightBudget)}</span
 						>
+						{@render syncToggle()}
 					</div>
 					<CompareTree
 						handle={rightHandle}
@@ -326,8 +333,9 @@
 				<div class="pane">
 					<div class="pane-head rule-b">
 						<span class="dim text-sm file" title={rightName}
-							>R · {truncatePathMiddle(rightName, paneBudget)}</span
+							>R · {truncatePathMiddle(rightName, rightBudget)}</span
 						>
+						{@render syncToggle()}
 					</div>
 					<CodeView
 						handle={rightHandle}
@@ -468,43 +476,11 @@
 	}
 
 	.sync-toggle {
-		font-size: var(--font-size-xs);
-		letter-spacing: var(--label-tracking);
-		text-transform: uppercase;
-		padding: var(--space-2xs) var(--space-sm);
-		background: transparent;
-		border: var(--rule-width) solid var(--rule);
-		color: var(--text-dim);
-	}
-	.sync-toggle:hover {
-		color: var(--text);
-	}
-	.sync-toggle.on {
-		color: var(--accent);
-		border-color: var(--accent-line);
-	}
-
-	.mode-seg {
-		display: flex;
-	}
-	.mode-seg button {
-		font-size: var(--font-size-xs);
-		letter-spacing: var(--label-tracking);
-		text-transform: uppercase;
-		padding: var(--space-2xs) var(--space-sm);
-		background: transparent;
-		border: var(--rule-width) solid var(--rule);
-		color: var(--text-dim);
-	}
-	.mode-seg button:not(:last-child) {
-		border-right: none;
-	}
-	.mode-seg button:hover {
-		color: var(--text);
-	}
-	.mode-seg button.on {
-		color: var(--accent);
-		border-color: var(--accent-line);
+		flex-shrink: 0;
+		margin-left: auto;
+		padding-block: 0;
+		/* Cancels the border so the right header matches the left one's height and the panes' lines stay aligned. */
+		margin-block: calc(-1 * var(--rule-width));
 	}
 
 	.inline-head {
@@ -544,6 +520,7 @@
 		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
+		gap: var(--space-sm);
 		padding: var(--space-xs) var(--space-sm);
 		background: var(--bg-elev);
 		white-space: nowrap;

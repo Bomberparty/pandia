@@ -23,65 +23,63 @@
 	});
 </script>
 
-<section class="block">
-	<div class="label-row">
-		<span class="label">recent</span>
-		{#if recentsStore.list.length > 0}
+{#if recentsStore.list.length > 0}
+	<section class="block">
+		<div class="label-row">
+			<span class="label">recent</span>
 			<span class="recent-count dim text-sm"
 				>{recentsStore.list.length} file{recentsStore.list.length === 1 ? '' : 's'}</span
 			>
+		</div>
+		{#if recentsStore.list.length > 5}
+			<input
+				class="recents-search"
+				type="search"
+				placeholder="search recents…"
+				bind:value={recentsQuery}
+				spellcheck="false"
+				aria-label="Search recent files"
+			/>
 		{/if}
-	</div>
-	{#if recentsStore.list.length > 5}
-		<input
-			class="recents-search"
-			type="search"
-			placeholder="search recents…"
-			bind:value={recentsQuery}
-			spellcheck="false"
-			aria-label="Search recent files"
-		/>
-	{/if}
-	{#if recentsStore.list.length === 0}
-		<div class="dim text-sm empty-recents">No recent files yet</div>
-	{:else if visibleRecents.length === 0}
-		<div class="dim text-sm empty-recents">No matches for "{recentsQuery}"</div>
-	{:else}
-		<ul class="recents">
-			{#each visibleRecents.slice(0, 12) as r (r.path)}
-				<li class="recent" class:pinned={r.pinned}>
-					<button
-						class="pin"
-						onclick={() => togglePin(r.path)}
-						title={r.pinned ? 'Unpin' : 'Pin to top'}
-						aria-label={r.pinned ? 'Unpin' : 'Pin'}
-						aria-pressed={r.pinned}
-					>
-						<Icon icon={r.pinned ? Pin : PinOff} size="xs" />
-					</button>
-					<button
-						class="list-row recent-row"
-						onclick={() => onPick(r.path)}
-						disabled={busy}
-						title={r.path}
-					>
-						<span class="recent-name">{r.name}</span>
-						<span class="recent-meta">
-							{#if r.size != null}<span class="recent-size">{fmtBytes(r.size)}</span>{/if}
-							<span class="dim recent-when">{relativeTime(r.openedAt)}</span>
-						</span>
-					</button>
-					<button
-						class="recent-x"
-						onclick={() => removeRecent(r.path)}
-						title="Remove from recents"
-						aria-label="Remove from recents"><Icon icon={X} size="xs" /></button
-					>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-</section>
+		{#if visibleRecents.length === 0}
+			<div class="dim text-sm empty-recents">No matches for "{recentsQuery}"</div>
+		{:else}
+			<ul class="recents">
+				{#each visibleRecents.slice(0, 12) as r (r.path)}
+					<li class="recent" class:pinned={r.pinned}>
+						<button
+							class="pin"
+							onclick={() => togglePin(r.path)}
+							title={r.pinned ? 'Unpin' : 'Pin to top'}
+							aria-label={r.pinned ? 'Unpin' : 'Pin'}
+							aria-pressed={r.pinned}
+						>
+							<Icon icon={r.pinned ? Pin : PinOff} size="xs" />
+						</button>
+						<button
+							class="list-row recent-row"
+							onclick={() => onPick(r.path)}
+							disabled={busy}
+							title={r.path}
+						>
+							<span class="recent-name">{r.name}</span>
+							<span class="recent-meta">
+								{#if r.size != null}<span class="recent-size">{fmtBytes(r.size)}</span>{/if}
+								<span class="dim recent-when">{relativeTime(r.openedAt)}</span>
+							</span>
+						</button>
+						<button
+							class="recent-x"
+							onclick={() => removeRecent(r.path)}
+							title="Remove from recents"
+							aria-label="Remove from recents"><Icon icon={X} size="xs" /></button
+						>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
+{/if}
 
 <style>
 	.block {

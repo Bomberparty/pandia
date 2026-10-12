@@ -15,11 +15,16 @@
 		colCount,
 		sortKey,
 		sortDesc,
+		selectedCount,
+		copied,
 		onClearColumnIn,
 		onClearAll,
 		onAddGroup,
 		onRemoveGroup,
 		onSetActiveGroup,
+		onCopySelected,
+		onExtractSelected,
+		onClearSelection,
 	}: {
 		quick?: string;
 		groups: [string, ColFilter][][];
@@ -32,11 +37,16 @@
 		colCount: number;
 		sortKey: string | null;
 		sortDesc: boolean;
+		selectedCount: number;
+		copied: boolean;
 		onClearColumnIn: (groupIdx: number, key: string) => void;
 		onClearAll: () => void;
 		onAddGroup: () => void;
 		onRemoveGroup: (groupIdx: number) => void;
 		onSetActiveGroup: (groupIdx: number) => void;
+		onCopySelected: () => void;
+		onExtractSelected: () => void;
+		onClearSelection: () => void;
 	} = $props();
 </script>
 
@@ -109,28 +119,36 @@
 				<button class="or-add" onclick={onAddGroup} title="Add an OR group (match either)"
 					>+ OR</button
 				>
+				<button class="link-btn" onclick={onClearAll}>Clear all</button>
 			</div>
 		{/if}
 	</div>
 
 	<div class="toolbar-right">
-		{#if hasFilter}
-			<button class="link-btn" onclick={onClearAll}>Clear all</button>
-		{/if}
-		<span class="counts">
-			{#if filtering && fetching && filteredTotal === null}
-				<span class="fetching">Filtering…</span>
-			{:else if filtering}
-				<b>{(filteredTotal ?? 0).toLocaleString()}</b> of {rowCount.toLocaleString()} rows
-			{:else}
-				{rowCount.toLocaleString()} row{rowCount === 1 ? '' : 's'}
+		{#if selectedCount > 0}
+			<span class="counts"><b>{selectedCount.toLocaleString()}</b> selected</span>
+			·
+			<button class="link-btn" onclick={onCopySelected}>{copied ? 'copied' : 'copy JSON'}</button>
+			·
+			<button class="link-btn" onclick={onExtractSelected}>extract to tab ↗</button>
+			·
+			<button class="link-btn" onclick={onClearSelection}>clear</button>
+		{:else}
+			<span class="counts">
+				{#if filtering && fetching && filteredTotal === null}
+					<span class="fetching">Filtering…</span>
+				{:else if filtering}
+					<b>{(filteredTotal ?? 0).toLocaleString()}</b> of {rowCount.toLocaleString()} rows
+				{:else}
+					{rowCount.toLocaleString()} row{rowCount === 1 ? '' : 's'}
+				{/if}
+				· {colCount} cols
+			</span>
+			{#if sortKey}
+				<span class="sort-status"
+					>· <b>{sortKey}</b> <Icon icon={sortDesc ? ArrowDown : ArrowUp} size="xs" /></span
+				>
 			{/if}
-			· {colCount} cols
-		</span>
-		{#if sortKey}
-			<span class="sort-status"
-				>· <b>{sortKey}</b> <Icon icon={sortDesc ? ArrowDown : ArrowUp} size="xs" /></span
-			>
 		{/if}
 	</div>
 </div>
@@ -166,7 +184,7 @@
 		flex: 0 0 auto;
 	}
 	.sort-status b {
-		color: var(--accent);
+		color: var(--text);
 		font-weight: 400;
 	}
 

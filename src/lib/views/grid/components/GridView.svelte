@@ -297,29 +297,20 @@
 		colCount={schema.columns.length}
 		sortKey={filter.sortKey}
 		sortDesc={filter.sortDesc}
+		selectedCount={selection.selectedRows.size}
+		copied={selection.rowsCopy.done}
 		onClearColumnIn={filter.clearColumnIn}
 		onClearAll={filter.clearAll}
 		onAddGroup={filter.addGroup}
 		onRemoveGroup={filter.removeGroup}
 		onSetActiveGroup={filter.setActiveGroup}
+		onCopySelected={selection.copySelected}
+		onExtractSelected={selection.extractSelected}
+		onClearSelection={selection.clearSelection}
 	/>
 
 	{#if filter.sortError}
 		<div class="banner banner-err" role="status">filter unavailable: {filter.sortError}</div>
-	{/if}
-
-	{#if selection.selectedRows.size > 0}
-		<div class="sel-bar">
-			<span class="sel-count"
-				>{selection.selectedRows.size} row{selection.selectedRows.size === 1 ? '' : 's'} selected</span
-			>
-			<span class="grow"></span>
-			<button class="sel-btn" onclick={selection.copySelected}
-				>{selection.rowsCopy.done ? 'copied' : 'copy JSON'}</button
-			>
-			<button class="sel-btn" onclick={selection.extractSelected}>extract to tab ↗</button>
-			<button class="sel-btn" onclick={selection.clearSelection}>clear</button>
-		</div>
 	{/if}
 
 	<div class="top" style="height: {HEADER_HEIGHT}px;">
@@ -482,33 +473,6 @@
 		min-width: 0;
 		font-family: var(--font-mono);
 		font-size: var(--font-size-base);
-		color: var(--text);
-	}
-
-	.sel-bar {
-		flex: 0 0 auto;
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		padding: var(--space-xs) var(--space-sm);
-		background: var(--bg-elev-2);
-		border-bottom: 1px solid var(--rule);
-		font-size: var(--font-size-sm);
-	}
-	.sel-count {
-		color: var(--text);
-		font-weight: 700;
-	}
-	.sel-btn {
-		background: transparent;
-		border: 1px solid var(--rule-2);
-		color: var(--text-dim);
-		font-size: var(--font-size-sm);
-		padding: var(--space-2xs) 0.6ch;
-		cursor: pointer;
-		white-space: nowrap;
-	}
-	.sel-btn:hover {
 		color: var(--text);
 	}
 

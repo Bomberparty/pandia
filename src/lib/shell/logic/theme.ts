@@ -114,6 +114,7 @@ function setDerivedShades(r: HTMLElement, theme: Theme): void {
 	r.style.setProperty('--danger-soft', mixHex(c.bg, c.danger, SOFT_MIX));
 	r.style.setProperty('--success-soft', mixHex(c.bg, c.success, SOFT_MIX));
 	r.style.setProperty('--warning-soft', mixHex(c.bg, c.warning, SOFT_MIX));
+	r.style.setProperty('--moved-soft', mixHex(c.bg, c.syntaxBoolean, SOFT_MIX));
 	// Editor highlights sit above CodeMirror's selection layer, so they must stay translucent.
 	r.style.setProperty('--line-tint', withAlpha(c.text, LINE_TINT));
 	r.style.setProperty('--danger-tint', withAlpha(c.danger, DIFF_TINT));

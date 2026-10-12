@@ -7,6 +7,7 @@
 		type Theme,
 		type Density,
 	} from '$lib/shell/logic/theme';
+	import { Arm } from '$lib/util/arm.svelte';
 
 	$effect(() => {
 		void appearancePrefs.init();
@@ -116,6 +117,13 @@
 		await appearancePrefs.setFontFamily(f);
 	}
 
+	const resetArm = new Arm();
+
+	function restoreDefaults() {
+		customFont = '';
+		void appearancePrefs.reset();
+	}
+
 	async function onSizeChange(e: Event) {
 		const v = parseFloat((e.target as HTMLInputElement).value);
 		if (Number.isFinite(v)) await appearancePrefs.setFontSize(v);
@@ -124,7 +132,15 @@
 
 <div class="settings-panel">
 	<header class="settings-head">
-		<h2 class="settings-title">Appearance</h2>
+		<div class="head-row">
+			<h2 class="settings-title">Appearance</h2>
+			<button
+				class={resetArm.armed ? 'btn btn-danger' : 'btn btn-ghost'}
+				title="Resets the theme to Auto (follows your system), and font, size, and density to their defaults"
+				onclick={() => resetArm.press(restoreDefaults)}
+				>{resetArm.armed ? 'Click again to restore' : 'Restore defaults'}</button
+			>
+		</div>
 		<p class="hint text-sm dim">Persisted across launches · changes apply instantly.</p>
 	</header>
 
@@ -194,18 +210,20 @@
 					</div>
 				</div>
 			{/each}
-			<div class="font-custom">
-				<input
-					placeholder="Custom (any installed font)"
-					bind:value={customFont}
-					onkeydown={(e) => {
-						if (e.key === 'Enter') applyCustomFont();
-					}}
-					aria-label="Custom font family"
-					spellcheck="false"
-				/>
-				<button onclick={applyCustomFont} disabled={!customFont.trim()}>Apply</button>
-			</div>
+			<input
+				class="font-custom"
+				placeholder="Custom (any installed font)"
+				bind:value={customFont}
+				onchange={applyCustomFont}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') applyCustomFont();
+				}}
+				style:font-family={customFont.trim()
+					? `'${customFont.trim()}', ui-monospace, monospace`
+					: null}
+				aria-label="Custom font family"
+				spellcheck="false"
+			/>
 			<div class="text-sm dim">Current: <span class="mono">{appearancePrefs.fontFamily}</span></div>
 		</div>
 	</section>
@@ -245,16 +263,15 @@
 			</div>
 		</div>
 	</section>
-
-	<section class="field">
-		<div class="field-label"></div>
-		<div class="field-control">
-			<button class="reset" onclick={() => appearancePrefs.reset()}>Restore defaults</button>
-		</div>
-	</section>
 </div>
 
 <style>
+	.head-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-md);
+	}
 	.hint {
 		margin: 0;
 	}
@@ -343,16 +360,6 @@
 		border-color: var(--accent);
 	}
 	.font-custom {
-		display: flex;
-		gap: var(--space-xs);
-	}
-	.font-custom input {
-		flex: 1;
-		min-width: 0;
-		font-size: var(--font-size-sm);
-		padding: var(--space-xs) var(--space-sm);
-	}
-	.font-custom button {
 		font-size: var(--font-size-sm);
 		padding: var(--space-xs) var(--space-sm);
 	}
@@ -402,18 +409,5 @@
 	.density-label {
 		font-size: var(--font-size-sm);
 		letter-spacing: 0.04em;
-	}
-
-	.reset {
-		font-size: var(--font-size-sm);
-		padding: var(--space-xs) var(--space-md);
-		background: transparent;
-		color: var(--text-dim);
-		border: var(--rule-width) solid var(--rule);
-		align-self: flex-start;
-	}
-	.reset:hover {
-		color: var(--text);
-		border-color: var(--rule-2);
 	}
 </style>

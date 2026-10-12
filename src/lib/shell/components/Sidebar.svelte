@@ -182,7 +182,7 @@
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
 		cursor: pointer;
-		padding: 0 var(--space-xs);
+		padding: 0;
 		min-width: 0;
 		position: relative;
 	}

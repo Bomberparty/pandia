@@ -47,16 +47,9 @@
 }
 
 .menu-divider {
-	height: var(--rule-width);
-	background: var(--rule);
 	margin: var(--space-xs) 0;
 }
-
-.menu-tip {
-	margin-top: var(--space-xs);
-	padding: var(--space-sm) var(--space-md);
-	border-top: var(--rule-width) solid var(--rule);
-	color: var(--text-dim);
-	font-size: var(--font-size-xs);
-	letter-spacing: 0.04em;
+.menu-divider.rule {
+	height: var(--rule-width);
+	background: var(--rule);
 }

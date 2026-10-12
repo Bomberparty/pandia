@@ -80,6 +80,8 @@
 		onReady?: (api: CodeViewApi | null) => void;
 
 		onParseState?: (state: { valid: boolean; message: string | null } | null) => void;
+
+		onOpenTree?: () => void;
 	}
 
 	let {
@@ -93,6 +95,7 @@
 		onDirtyChange,
 		onReady,
 		onParseState,
+		onOpenTree,
 	}: Props = $props();
 
 	const SIZE_CAP = 50 * 1024 * 1024;
@@ -401,6 +404,9 @@
 			<div class="label">code view unavailable</div>
 			<p>this document is {fmtBytes(sourceSize)} — code view is capped at {fmtBytes(SIZE_CAP)}.</p>
 			<p class="dim text-sm">use tree view: it streams slices from Rust regardless of size.</p>
+			{#if onOpenTree}
+				<button class="btn btn-primary self-start" onclick={onOpenTree}>Open in Tree view</button>
+			{/if}
 		</div>
 	</div>
 {:else}

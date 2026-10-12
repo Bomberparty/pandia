@@ -1,3 +1,5 @@
+import { mixHex } from '$lib/util/color';
+
 export interface GraphTheme {
 	bg: string;
 	bgElev: string;
@@ -75,12 +77,12 @@ export function readGraphTheme(): GraphTheme {
 export function hueColor(theme: GraphTheme, hue: number): string {
 	switch (hue % 4) {
 		case 0:
-			return theme.syntaxBoolean;
-		case 1:
-			return theme.syntaxNumber;
-		case 2:
-			return theme.accent2;
-		default:
 			return theme.accent;
+		case 1:
+			return mixHex(theme.accent, theme.textDim, 0.35);
+		case 2:
+			return mixHex(theme.accent, theme.textDim, 0.7);
+		default:
+			return theme.textDim;
 	}
 }

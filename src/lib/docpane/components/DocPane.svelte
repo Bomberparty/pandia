@@ -341,11 +341,17 @@
 		menuState = null;
 	}
 
-	async function onMenuAction(action: MenuAction) {
-		const row = menuState ? tree.rows[menuState.rowIndex] : null;
+	async function onRowAction(rowIndex: number, action: MenuAction) {
+		const row = tree.rows[rowIndex];
 		if (row?.variant !== 'content') return;
-		await menuAction(action, menuState!.rowIndex, row);
+		await menuAction(action, rowIndex, row);
 	}
+
+	async function onMenuAction(action: MenuAction) {
+		if (menuState) await onRowAction(menuState.rowIndex, action);
+	}
+
+	const openTree = () => void doc.switchView('tree');
 
 	async function onExpandAll() {
 		if (expandAllDisabled) return;
@@ -479,6 +485,7 @@
 				onMaterializeGap={tree.materializeGap}
 				onReorder={(dragged, gap) => void nodeActions.reorderTo(dragged, gap)}
 				{onRowMenu}
+				{onRowAction}
 				scrollRequest={nav.scrollRequest}
 				editing={edit.state}
 				onEditInput={edit.input}
@@ -526,6 +533,7 @@
 				onDirtyChange={(d) => (codeDirty = d)}
 				onReady={(a) => (codeApi = a)}
 				onParseState={(st) => (codeValid = st)}
+				onOpenTree={openTree}
 			/>
 			<FindBar
 				open={find.open}
@@ -572,7 +580,7 @@
 				}}
 			/>
 		{:else}
-			<GridEmpty schema={gridSchema} rootKind={session.summary.rootKind} />
+			<GridEmpty schema={gridSchema} rootKind={session.summary.rootKind} onOpenTree={openTree} />
 		{/if}
 	{:else}
 		<div class="empty-state">

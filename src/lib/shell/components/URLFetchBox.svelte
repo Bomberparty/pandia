@@ -72,9 +72,11 @@
 			}}
 		/>
 		{#if urlBusy}
-			<button onclick={cancelFetch}>Cancel</button>
+			<button class="btn" onclick={cancelFetch}>Cancel</button>
 		{:else}
-			<button onclick={onFetchUrl} disabled={busy || !urlText.trim()}>Fetch</button>
+			<button class="btn btn-primary" onclick={onFetchUrl} disabled={busy || !urlText.trim()}
+				>Fetch</button
+			>
 		{/if}
 	</div>
 	{#if showHeaders}

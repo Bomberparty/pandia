@@ -199,7 +199,7 @@ function paintCard(
 	}
 
 	ctx.font = `${HEADER_FONT_WEIGHT} ${FONT_PX}px ${theme.monoFamily}`;
-	ctx.fillStyle = accent;
+	ctx.fillStyle = theme.text;
 	ctx.textBaseline = 'middle';
 	ctx.textAlign = 'left';
 	const titleText = fitText(ctx, card.title, card.w - ROW_PAD_X * 2);
@@ -221,7 +221,7 @@ function paintCard(
 			ctx.stroke();
 		}
 
-		paintRow(ctx, card, row, rowY, accent, scale, theme);
+		paintRow(ctx, card, row, rowY, scale, theme);
 	}
 
 	if (highlighted) paintHighlightRing(ctx, card, scale, theme);
@@ -252,14 +252,13 @@ function paintRow(
 	card: PositionedCard,
 	row: PositionedCard['rows'][number],
 	rowY: number,
-	accent: string,
 	scale: number,
 	theme: GraphTheme,
 ): void {
 	const midY = rowY + ROW_H / 2;
 	let cursorX = card.x + ROW_PAD_X;
 
-	ctx.fillStyle = accent;
+	ctx.fillStyle = theme.textDim;
 	ctx.fillText(row.key, cursorX, midY);
 	cursorX += ctx.measureText(row.key).width;
 
@@ -290,10 +289,10 @@ function paintRow(
 		ctx.arc(portX, midY, 8, 0, Math.PI * 2);
 		ctx.fillStyle = theme.bgElev3;
 		ctx.fill();
-		ctx.strokeStyle = open ? accent : theme.rule2;
+		ctx.strokeStyle = open ? theme.textDim : theme.rule2;
 		ctx.lineWidth = 1 / scale;
 		ctx.stroke();
-		ctx.strokeStyle = open ? accent : theme.textDim;
+		ctx.strokeStyle = theme.textDim;
 		ctx.lineWidth = 1.4 / scale;
 		ctx.lineCap = 'round';
 		ctx.beginPath();

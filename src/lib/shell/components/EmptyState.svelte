@@ -201,7 +201,6 @@
 		color: var(--accent);
 		background: var(--accent-soft);
 		border: 1px solid var(--accent-line);
-		border-radius: 3px;
 		pointer-events: none;
 	}
 

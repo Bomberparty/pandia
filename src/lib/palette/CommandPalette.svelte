@@ -129,7 +129,13 @@
 		<div
 			class="palette"
 			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}
+			onkeydown={(e) => {
+				e.stopPropagation();
+				if (e.key === 'Tab') {
+					e.preventDefault();
+					inputEl?.focus();
+				}
+			}}
 			role="dialog"
 			aria-label="Command palette"
 			tabindex="-1"

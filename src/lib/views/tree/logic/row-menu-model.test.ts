@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMenuModel } from './row-menu-model';
+import { buildMenuModel, editActionFor } from './row-menu-model';
 import type { ContentRow, MenuAction } from './model';
 
 function row(over: Partial<ContentRow>): ContentRow {
@@ -91,5 +91,28 @@ describe('buildMenuModel', () => {
 	it('groups are non-empty (no dangling dividers)', () => {
 		const groups = buildMenuModel(row({ kind: 'string', key: 'name', depth: 1 }), caps);
 		expect(groups.every((g) => g.length > 0)).toBe(true);
+	});
+});
+
+describe('editActionFor', () => {
+	it('edits the value of every leaf kind', () => {
+		for (const kind of ['string', 'number', 'bool', 'null'] as const) {
+			expect(editActionFor(row({ kind }), 'value')).toBe('edit-value');
+		}
+	});
+
+	it('does not edit the value of a container', () => {
+		expect(editActionFor(row({ kind: 'object' }), 'value')).toBeNull();
+		expect(editActionFor(row({ kind: 'array' }), 'value')).toBeNull();
+	});
+
+	it('edits the key of an object child, including a container', () => {
+		expect(editActionFor(row({ key: 'name' }), 'key')).toBe('edit-key');
+		expect(editActionFor(row({ kind: 'object', key: 'user' }), 'key')).toBe('edit-key');
+	});
+
+	it('does not edit an array index or the root key', () => {
+		expect(editActionFor(row({ key: 0 }), 'key')).toBeNull();
+		expect(editActionFor(row({ kind: 'object', key: '$', depth: 0 }), 'key')).toBeNull();
 	});
 });

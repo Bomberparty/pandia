@@ -175,7 +175,6 @@
 
 	.sb-spacer {
 		flex: 1;
-		border-right: var(--rule-width) solid var(--rule);
 	}
 
 	.sb-cell.right {

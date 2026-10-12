@@ -83,25 +83,4 @@
 		text-transform: uppercase;
 		color: var(--text-dim);
 	}
-	.seg {
-		display: inline-flex;
-		gap: 1px;
-		border: 1px solid var(--rule);
-	}
-	.seg button {
-		background: transparent;
-		border: none;
-		padding: var(--space-xs) var(--space-md);
-		font-size: var(--font-size-xs);
-		color: var(--text-dim);
-		cursor: pointer;
-	}
-	.seg button:hover {
-		color: var(--text);
-		background: var(--bg-elev-3);
-	}
-	.seg button.active {
-		color: var(--accent);
-		background: var(--accent-soft);
-	}
 </style>

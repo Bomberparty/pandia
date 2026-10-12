@@ -10,10 +10,12 @@
 		rowKey,
 		vgapCount,
 		type ContentRow,
+		type MenuAction,
 		type Row,
 		type VirtualGapRow,
 	} from '../logic/model';
 	import { chipText, openBracket, renderKey, detectUrl } from '../logic/row-format';
+	import { editActionFor } from '../logic/row-menu-model';
 	import { gapAt, ROW_DRAG_EDGE_ZONE, ROW_DRAG_MAX_STEP } from '../logic/row-drag-math';
 	import { createAutoScroller } from '$lib/ui/auto-scroll';
 	import Icon from '$lib/ui/Icon.svelte';
@@ -42,6 +44,7 @@
 		onSelect: (index: number) => void;
 		onVisibleRange: (start: number, end: number) => void;
 		onRowMenu: (index: number, x: number, y: number) => void;
+		onRowAction?: (index: number, action: MenuAction) => void;
 		scrollRequest: ScrollRequest | null;
 		editing: EditingState | null;
 		onEditInput: (text: string) => void;
@@ -70,6 +73,7 @@
 		onSelect,
 		onVisibleRange,
 		onRowMenu,
+		onRowAction,
 		scrollRequest,
 		editing,
 		onEditInput,
@@ -247,12 +251,29 @@
 		onRowMenu(i, rect.right, rect.bottom);
 	}
 
+	const editable = $derived(!readOnly && !!onRowAction);
+
+	function onRowDblClick(e: MouseEvent, i: number, row: Row) {
+		if (!editable || row.variant !== 'content') return;
+		const part = (e.target as Element).closest('.k, .v:not(.url)');
+		if (!part) return;
+		const action = editActionFor(row, part.classList.contains('k') ? 'key' : 'value');
+		if (action) onRowAction?.(i, action);
+	}
+
 	function onRowKeydown(e: KeyboardEvent, i: number, row: Row) {
 		if (row.variant !== 'content') return;
 		if (e.key.toLowerCase() === 'q' && e.ctrlKey && !e.metaKey) {
 			e.preventDefault();
 			const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 			onRowMenu(i, rect.left + 100, rect.bottom);
+			return;
+		}
+		if (e.key === 'F2' && editable) {
+			const action = editActionFor(row, 'value') ?? editActionFor(row, 'key');
+			if (!action) return;
+			e.preventDefault();
+			onRowAction?.(i, action);
 			return;
 		}
 		if (e.key === 'Enter' || e.key === ' ') {
@@ -331,6 +352,7 @@
 <div
 	class="scroller"
 	class:dragging={!!drag}
+	class:editable
 	use:s.attach
 	onpointermove={onDragMove}
 	onpointerup={onDragUp}
@@ -366,6 +388,7 @@
 					role="button"
 					tabindex={0}
 					onclick={() => onRowClick(i, row)}
+					ondblclick={(e) => onRowDblClick(e, i, row)}
 					oncontextmenu={(e) => onRowContext(e, i, row)}
 					onkeydown={(e) => onRowKeydown(e, i, row)}
 				>
@@ -488,18 +511,20 @@
 	.r.expandable {
 		cursor: pointer;
 	}
-	.r.expandable:hover {
-		background: var(--bg-elev);
-	}
-	.r.close:hover {
+	.r:hover {
 		background: var(--bg-elev);
 	}
 	.r.selected {
 		background: var(--accent-soft);
 		box-shadow: inset 2px 0 0 var(--accent);
 	}
-	.r.selected.expandable:hover {
+	.r.selected:hover {
 		background: var(--accent-fill);
+	}
+	/* A preceding .guide means depth > 0: the root key is not editable. */
+	.scroller.editable .guide ~ .k:not(.idx),
+	.scroller.editable .v:not(.url) {
+		cursor: text;
 	}
 
 	.r.cut {
@@ -524,7 +549,7 @@
 		box-shadow: inset 2px 0 0 var(--warning);
 	}
 	.r[data-diff='moved'] {
-		background: rgba(168, 132, 196, 0.16);
+		background: var(--moved-soft);
 		box-shadow: inset 2px 0 0 var(--syntax-boolean);
 	}
 

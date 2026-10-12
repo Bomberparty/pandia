@@ -123,8 +123,6 @@
 		color: var(--text-dim);
 		font-family: var(--font-mono);
 		font-size: var(--font-size-sm);
-		letter-spacing: var(--label-tracking);
-		text-transform: lowercase;
 		background: transparent;
 		border: none;
 		border-right: 1px solid var(--rule);
@@ -188,7 +186,8 @@
 	.cell.head:hover .funnel {
 		opacity: 0.85;
 	}
-	.funnel:hover {
+	.funnel:hover,
+	.funnel:focus-visible {
 		color: var(--text);
 		opacity: 1;
 		background: var(--bg-elev-3);
@@ -199,7 +198,6 @@
 	}
 	.mark {
 		font-size: var(--font-size-xs);
-		opacity: 0.7;
 	}
 	.mark.mixed {
 		color: var(--text-dim);

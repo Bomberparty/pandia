@@ -50,7 +50,9 @@
 	{#if diagnosis.fix}
 		{@const fix = diagnosis.fix}
 		<div class="actions">
-			<button class="fix" onclick={() => onFix(fix.text)} disabled={busy}>{fix.label}</button>
+			<button class="btn btn-primary" onclick={() => onFix(fix.text)} disabled={busy}
+				>{fix.label}</button
+			>
 			{#if fix.warnings.length > 0}
 				<span class="warn"
 					>changes {fix.warnings.length} thing{fix.warnings.length > 1 ? 's' : ''}</span
@@ -82,7 +84,6 @@
 		padding: var(--space-sm);
 		border: 1px solid var(--diag-line);
 		background: var(--diag-soft);
-		border-radius: 4px;
 	}
 
 	.head {
@@ -121,7 +122,6 @@
 		padding: var(--space-xs) var(--space-sm);
 		background: var(--bg);
 		border: 1px solid var(--rule);
-		border-radius: 3px;
 		overflow-x: auto;
 	}
 	.code {
@@ -138,7 +138,6 @@
 		color: var(--danger);
 		background: var(--diag-soft);
 		outline: 1px solid var(--diag-line);
-		border-radius: 2px;
 	}
 	.clip {
 		color: var(--text-faint);
@@ -155,23 +154,6 @@
 		align-items: center;
 		gap: var(--space-sm);
 		padding-top: var(--space-2xs);
-	}
-	.fix {
-		padding: var(--space-xs) var(--space-md);
-		font-size: var(--font-size-sm);
-		border: 1px solid var(--accent-line);
-		background: var(--accent-soft);
-		color: var(--accent);
-		border-radius: 3px;
-		cursor: pointer;
-	}
-	.fix:hover:not(:disabled) {
-		background: var(--accent);
-		color: var(--on-accent);
-	}
-	.fix:disabled {
-		opacity: 0.5;
-		cursor: default;
 	}
 	.warn {
 		font-size: var(--font-size-sm);

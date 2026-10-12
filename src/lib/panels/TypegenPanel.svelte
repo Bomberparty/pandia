@@ -27,6 +27,7 @@
 	const copyFlag = new CopyFlag();
 
 	const lang = $derived(typegenPrefs.activeLang);
+	const langLabel = $derived(TYPEGEN_LANGS.find((l) => l.id === lang)?.label ?? lang);
 
 	function deriveTypeName(sourceName: string | null): string {
 		if (!sourceName) return 'Root';
@@ -111,9 +112,16 @@
 		<div class="err-row notice text-xs">{error}</div>
 	{/if}
 
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-	<pre class="preview" tabindex="0" aria-label="generated types preview"><code>{output || ''}</code
-		></pre>
+	{#if !context}
+		<div class="empty dim text-xs">No document in this tab</div>
+	{:else if busy && !output}
+		<div class="empty dim text-xs">Generating {langLabel}…</div>
+	{:else}
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<pre class="preview" tabindex="0" aria-label="generated types preview"><code
+				>{output || ''}</code
+			></pre>
+	{/if}
 </div>
 
 <style>
@@ -209,6 +217,11 @@
 
 	.err-row {
 		flex-shrink: 0;
+	}
+
+	.empty {
+		padding: var(--space-sm) var(--space-2xs);
+		text-align: center;
 	}
 
 	.preview {

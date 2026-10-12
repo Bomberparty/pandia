@@ -114,11 +114,16 @@
 		return text.length > 0 && !hasSchemaKeywords(text);
 	});
 
+	const manual = $derived(behaviorPrefs.schemaDebounceMs === SCHEMA_DEBOUNCE_MANUAL);
+
 	const statusText = $derived.by(() => {
 		if (!context) return 'no document in this tab';
 		if (state.busy) return 'validating…';
 		if (state.error) return state.error;
-		if (state.result == null) return state.text.trim() ? '' : 'paste a schema below';
+		if (state.result == null) {
+			if (!state.text.trim()) return 'paste a schema below';
+			return manual ? 'not validated · press Validate' : '';
+		}
 		if (state.result.valid) return 'valid · 0 errors';
 		const n = state.result.errorCount;
 		return `invalid · ${n} error${n === 1 ? '' : 's'}${state.result.truncated ? ' (showing 500)' : ''}`;
@@ -153,6 +158,7 @@
 	<div class="bar">
 		<button
 			class="btn"
+			class:btn-primary={manual}
 			onclick={onValidateNow}
 			disabled={!context || !state.text.trim() || state.busy}
 			title="Validate now">Validate</button
