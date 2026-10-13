@@ -47,6 +47,8 @@
 
 	let dragging = $state(false);
 	let resizeStartW = 0;
+	// What's on screen, which can be wider than the saved width when the tab words need more room.
+	let renderedWidth = $state(0);
 
 	function onResizeDouble() {
 		sidebarPrefs.setWidth((MIN_WIDTH + MAX_WIDTH) / 2 - 30);
@@ -57,10 +59,10 @@
 		const shrinkKey = sidebarPrefs.side === 'right' ? 'ArrowRight' : 'ArrowLeft';
 		if (e.key === growKey) {
 			e.preventDefault();
-			sidebarPrefs.setWidth(sidebarPrefs.width + 16);
+			sidebarPrefs.setWidth(renderedWidth + 16);
 		} else if (e.key === shrinkKey) {
 			e.preventDefault();
-			sidebarPrefs.setWidth(sidebarPrefs.width - 16);
+			sidebarPrefs.setWidth(renderedWidth - 16);
 		}
 	}
 </script>
@@ -74,14 +76,14 @@
 		role="separator"
 		aria-orientation="vertical"
 		aria-label="resize sidebar"
-		aria-valuenow={sidebarPrefs.width}
+		aria-valuenow={renderedWidth}
 		aria-valuemin={MIN_WIDTH}
 		aria-valuemax={MAX_WIDTH}
 		tabindex="0"
 		use:resizable={{
 			onStart: () => {
 				dragging = true;
-				resizeStartW = sidebarPrefs.width;
+				resizeStartW = renderedWidth;
 			},
 			onMove: (dx) =>
 				sidebarPrefs.setWidthLive(resizeStartW + (sidebarPrefs.side === 'right' ? -dx : dx)),
@@ -101,6 +103,7 @@
 	class="sidebar"
 	class:right={sidebarPrefs.side === 'right'}
 	style="width: {sidebarPrefs.width}px;"
+	bind:offsetWidth={renderedWidth}
 	aria-label="sidebar"
 >
 	<nav class="tabs" aria-label="sidebar tabs">
@@ -109,10 +112,9 @@
 				class="tab"
 				class:active={sidebarPrefs.activeTab === t}
 				onclick={() => activate(t)}
-				title={TAB_LABELS[t]}
 				aria-current={sidebarPrefs.activeTab === t ? 'page' : undefined}
 			>
-				<span class="tab-label">{TAB_LABELS[t]}</span>
+				{TAB_LABELS[t]}
 			</button>
 		{/each}
 	</nav>
@@ -141,7 +143,8 @@
 	.sidebar {
 		display: flex;
 		flex-direction: column;
-		min-width: 0;
+		/* Never narrower than the tab words, whatever the font, size or density. */
+		min-width: min-content;
 		min-height: 0;
 		background: var(--bg);
 		border-right: var(--rule-width) solid var(--rule);
@@ -163,7 +166,7 @@
 	}
 
 	.tab {
-		flex: 1;
+		flex: 1 1 auto;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -175,8 +178,8 @@
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
 		cursor: pointer;
-		padding: 0;
-		min-width: 0;
+		padding: 0 var(--space-sm);
+		white-space: nowrap;
 		position: relative;
 	}
 	.tab:last-child {
@@ -199,16 +202,12 @@
 		background: var(--accent);
 	}
 
-	.tab-label {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.body {
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
+		/* Wide panel content scrolls instead of widening the panel. */
+		contain: inline-size;
 		padding: var(--space-md);
 	}
 
