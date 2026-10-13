@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import type { Diagnosis, DetectKind, OpenSource } from '$lib/ipc/bindings';
-	import { ipc } from '$lib/ipc/client';
+	import type { Diagnosis, OpenSource } from '$lib/ipc/bindings';
 	import PasteDiagnostic from './PasteDiagnostic.svelte';
 	import { buildDemoSource } from '../logic/demo';
-	import { stem } from '$lib/util/path';
 	import { JSON_OPEN_FILTERS } from '$lib/util/file-types';
 	import { fmtKbd } from '$lib/util/platform';
 	import { detectFormat, formatLabel } from '../logic/detect-format';
@@ -38,24 +36,11 @@
 	}
 
 	async function openFromText(text: string, baseName: string) {
-		let source: OpenSource = { kind: 'text', text, name: baseName };
-		try {
-			const r = await ipc.docDetectAndConvert(text);
-			if (r.error == null) {
-				source = { kind: 'text', text: r.json, name: renameForDetect(baseName, r.kind) };
-			}
-		} catch {}
-
-		if (await onOpenSource(source)) {
+		if (await onOpenSource({ kind: 'text', text, name: baseName })) {
 			pasteText = '';
 			return;
 		}
 		pasteText = text;
-	}
-
-	function renameForDetect(base: string, kind: DetectKind): string {
-		if (kind === 'json' || kind === 'unknown') return base;
-		return `${stem(base)}.json`;
 	}
 
 	function onPasteCapture(e: ClipboardEvent) {

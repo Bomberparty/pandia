@@ -15,7 +15,6 @@ export interface SchemaOrigin {
 	ignoredDocRef: string | null;
 }
 
-/** The one answer a tab's schema gives about its document. */
 export type SchemaVerdict =
 	| { kind: 'none' }
 	| { kind: 'checking'; last: SchemaValidationResult | null }
@@ -23,7 +22,6 @@ export type SchemaVerdict =
 	| { kind: 'checked'; result: SchemaValidationResult }
 	| { kind: 'problem'; message: string };
 
-/** The newest finished check, kept while a new one is pending so marks stay on screen. */
 export function lastResult(verdict: SchemaVerdict): SchemaValidationResult | null {
 	switch (verdict.kind) {
 		case 'checked':
@@ -36,7 +34,6 @@ export function lastResult(verdict: SchemaVerdict): SchemaValidationResult | nul
 	}
 }
 
-/** A tab's schema: its text, where it came from, and the verdict on the tab's document. */
 export class SchemaSession {
 	text = $state('');
 	origin: SchemaOrigin | null = $state(null);
@@ -46,7 +43,6 @@ export class SchemaSession {
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private seq = 0;
 
-	// Called from the pane's effect; untracked so that effect doesn't depend on the verdict.
 	documentChanged(handle: DocHandle, version: number): void {
 		untrack(() => {
 			const changed = this.doc !== null && this.doc.version !== version;
@@ -63,7 +59,6 @@ export class SchemaSession {
 		this.schedule();
 	}
 
-	/** A schema arriving from --schema or $schema is checked at once unless checking is manual. */
 	async load(text: string, origin: SchemaOrigin | null): Promise<void> {
 		this.text = text;
 		this.origin = origin;
@@ -102,7 +97,6 @@ export class SchemaSession {
 		}
 	}
 
-	/** The verdict on the document as it is now, checking first if the last check is out of date. */
 	async settleVerdict(): Promise<SchemaVerdict> {
 		if (this.verdict.kind === 'checking' || this.verdict.kind === 'stale') {
 			await this.validateNow();

@@ -64,7 +64,6 @@ export class Handoff {
 		this.wasSaved = true;
 	}
 
-	// The tab's document must still be open: an unchecked edit is checked before reporting.
 	settle(tabId: string): Promise<void> {
 		this.settling ??= this.report(tabId);
 		return this.settling;

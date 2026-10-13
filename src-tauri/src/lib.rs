@@ -48,15 +48,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::doc_search,
             commands::cancel_job,
             commands::doc_replace,
-            commands::doc_repair_text,
             commands::doc_validate_schema,
             commands::read_schema_file,
             commands::doc_generate_types,
-            commands::doc_detect_and_convert,
-            commands::doc_diagnose,
             commands::doc_history,
             commands::doc_save,
-            commands::doc_set_file_path,
             commands::doc_backup,
             commands::doc_backup_clear,
             commands::doc_backup_scan,
@@ -151,8 +147,6 @@ pub fn run() {
     );
 
     tauri::Builder::default()
-        // Must come first: a second launch hands its arguments over here and exits before
-        // the other plugins start.
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             let files = cli::pending_from(
                 args.into_iter().skip(1),

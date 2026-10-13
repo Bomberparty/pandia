@@ -151,6 +151,7 @@
 			<div class="text-sm dim">
 				When a document fails to parse — pasted, dropped, opened from disk, or fetched — attempt
 				JSON repair (trailing commas, unterminated strings, comments, …) before showing an error.
+				The repaired document opens as a copy, so the original is only replaced if you save over it.
 			</div>
 		</div>
 	</section>

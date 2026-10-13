@@ -1,7 +1,7 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { ipc } from '$lib/ipc/client';
-import { describeError } from '$lib/ipc/error-copy';
-import type { DocHandle, OpenResult } from '$lib/ipc/bindings';
+import { describeError, describeOpenFailure } from '$lib/ipc/error-copy';
+import type { DocHandle, Summary } from '$lib/ipc/bindings';
 import type { CompareTarget } from '$lib/views/compare/logic/compare-target';
 import { JSON_OPEN_FILTERS } from '$lib/util/file-types';
 
@@ -17,7 +17,7 @@ export interface CompareDeps {
 
 export class CompareController {
 	handle: DocHandle | null = $state(null);
-	summary: OpenResult['summary'] | null = $state(null);
+	summary: Summary | null = $state(null);
 	sourceName: string | null = $state(null);
 
 	private borrowed = $state(false);
@@ -65,7 +65,11 @@ export class CompareController {
 		this.deps.setError(null);
 		try {
 			await this.release();
-			const res = await ipc.docOpen({ kind: 'file', path });
+			const res = await ipc.docOpen({ kind: 'file', path }, { repair: false });
+			if (res.kind === 'failed') {
+				this.deps.setError(describeOpenFailure(res));
+				return;
+			}
 			this.handle = res.handle;
 			this.summary = res.summary;
 			this.sourceName = path;

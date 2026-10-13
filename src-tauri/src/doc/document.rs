@@ -269,13 +269,18 @@ impl Document {
         self.current_hash() != self.saved_hash
     }
 
-    pub fn from_file<P: AsRef<FsPath>>(path: P) -> DocResult<Self> {
-        let p = path.as_ref();
-        let size = std::fs::metadata(p)
-            .map_err(|e| DocError::file(FileOp::Open, p, e))?
+    pub fn read_text_file(path: &FsPath) -> DocResult<String> {
+        let size = std::fs::metadata(path)
+            .map_err(|e| DocError::file(FileOp::Open, path, e))?
             .len();
         Self::ensure_within_max(size)?;
-        let text = std::fs::read_to_string(p).map_err(|e| DocError::file(FileOp::Open, p, e))?;
+        std::fs::read_to_string(path).map_err(|e| DocError::file(FileOp::Open, path, e))
+    }
+
+    #[cfg(test)]
+    pub fn from_file<P: AsRef<FsPath>>(path: P) -> DocResult<Self> {
+        let p = path.as_ref();
+        let text = Self::read_text_file(p)?;
         let path_str = p.to_string_lossy().into_owned();
         let mut doc = Self::from_text(&text, Some(path_str.clone()))?;
         doc.file_path = Some(path_str);
@@ -360,11 +365,6 @@ impl Document {
         self.backend().serialize_pretty()
     }
 
-    pub fn set_file_path(&mut self, path: String) {
-        self.file_path = Some(path.clone());
-        self.source_path = Some(path);
-    }
-
     fn serialize_ndjson(&self) -> Option<String> {
         self.backend().serialize_ndjson()
     }
@@ -392,9 +392,6 @@ impl Document {
         })
     }
 
-    /// Writes the document into a file it doesn't adopt, such as the reply to a waiting
-    /// `pandia --wait -`, and counts that as saved. The file must already exist, so its private
-    /// permissions are kept.
     pub fn save_copy(&mut self, target: &str) -> DocResult<()> {
         use std::io::Write;
         let text = self.serialize()?;
@@ -1368,20 +1365,6 @@ mod tests {
             !d.summary().dirty,
             "undo-to-original should clear dirty by content hash"
         );
-    }
-
-    #[test]
-    fn set_file_path_makes_doc_file_backed() {
-        let mut d = Document::from_text(r#"{"a": 1}"#, Some("orig.json".into())).unwrap();
-        assert!(!d.summary().file_backed);
-        d.set_file_path("/tmp/whatever.json".into());
-        assert!(d.summary().file_backed, "re-attached path → file-backed");
-        d.apply(&Op::SetValue {
-            path: Path::root(),
-            value: serde_json::json!({ "a": 2 }),
-        })
-        .unwrap();
-        assert!(d.summary().dirty);
     }
 
     #[test]

@@ -483,16 +483,10 @@
 
 	{#if session.repairInfo && !doc.error}
 		<div class="banner banner-info">
-			<span class="info-head"
-				>repaired
-				{#if session.repairInfo.wasUnescaped}
-					· unescaped{/if}
-				{#if session.repairInfo.cleanedUp}
-					· cleaned{/if}
-			</span>
-			{#if session.repairInfo.warnings.length > 0}
+			<span class="info-head">{session.repairInfo.title}</span>
+			{#if session.repairInfo.notes.length > 0}
 				<span class="info-list">
-					{#each session.repairInfo.warnings as w, i (i)}
+					{#each session.repairInfo.notes as w, i (i)}
 						<span class="info-item">{w}</span>
 					{/each}
 					{#if session.repairInfo.more > 0}

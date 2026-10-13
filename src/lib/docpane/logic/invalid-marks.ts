@@ -17,7 +17,6 @@ export interface ValidationResult {
 export interface InvalidMarksInput {
 	result: ValidationResult | null;
 
-	// True while the schema verdict is out of date, so the previous errors show dimmed.
 	stale: boolean;
 
 	rows: ReadonlyArray<Row>;

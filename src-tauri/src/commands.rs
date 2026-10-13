@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::doc::backup::{self, BackupRecord};
-use crate::doc::detect::{detect_and_convert, DetectResult};
+use crate::doc::detect::{detect_and_convert, DetectKind};
 use crate::doc::diagnose::{diagnose, Diagnosis};
 use crate::doc::diff::{compute_diff, DiffEntry};
 use crate::doc::document::{
@@ -12,7 +12,7 @@ use crate::doc::export::{ExportFormat, ExportPreview};
 use crate::doc::grid_filter::{self, FilterOp};
 use crate::doc::linediff::{compute_line_diff, line_slice, LineDiffResult, LINE_FETCH_MAX};
 use crate::doc::ops::Op;
-use crate::doc::repair::{repair as repair_string, RepairResult};
+use crate::doc::repair::repair;
 use crate::doc::schema::sniff_columns;
 use crate::doc::schema_validate::SchemaValidationResult;
 use crate::doc::search::{SearchHit, SearchOptions};
@@ -54,37 +54,139 @@ pub enum OpenSource {
     Piped { path: String },
 }
 
+#[derive(Debug, Default, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenOptions {
+    pub repair: bool,
+}
+
+#[derive(Debug, Default, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenNotes {
+    pub converted_from: Option<DetectKind>,
+    pub repairs: Vec<String>,
+}
+
 #[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct OpenResult {
+pub struct OpenedDoc {
     pub handle: DocHandle,
     pub summary: Summary,
+    pub notes: OpenNotes,
 }
 
-fn doc_open_inner(store: &DocStore, source: OpenSource) -> DocResult<OpenResult> {
-    let doc = match source {
-        OpenSource::File { path } => Document::from_file(&path)?,
-        OpenSource::Text { text, name } => Document::from_text(&text, name)?,
-        OpenSource::Piped { path } => open_piped(&path)?,
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenFailure {
+    pub detail: String,
+    pub too_large_to_fix: bool,
+    pub diagnosis: Diagnosis,
+}
+
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum OpenOutcome {
+    Opened(OpenedDoc),
+    Failed(OpenFailure),
+}
+
+fn doc_open_inner(
+    store: &DocStore,
+    source: OpenSource,
+    options: OpenOptions,
+) -> DocResult<OpenOutcome> {
+    open_with_fix_limit(store, source, options, EDIT_SIZE_LIMIT)
+}
+
+fn open_with_fix_limit(
+    store: &DocStore,
+    source: OpenSource,
+    options: OpenOptions,
+    fix_limit: u64,
+) -> DocResult<OpenOutcome> {
+    let (text, name, file_path) = read_source(source)?;
+    let detail = match Document::from_text(&text, name.clone()) {
+        Ok(mut doc) => {
+            doc.file_path = file_path;
+            return Ok(opened(store, doc, OpenNotes::default()));
+        }
+        Err(DocError::Parse(detail)) => detail,
+        Err(e) => return Err(e),
     };
+
+    let fixable = text.len() as u64 <= fix_limit;
+    let starts_like_json = matches!(text.trim_start().chars().next(), Some('{' | '['));
+    if fixable && !starts_like_json {
+        let detected = detect_and_convert(&text);
+        if detected.error.is_none()
+            && !matches!(detected.kind, DetectKind::Json | DetectKind::Unknown)
+        {
+            let doc =
+                Document::from_text(&detected.json, Some(copy_name(name.as_deref(), "json")))?;
+            let notes = OpenNotes {
+                converted_from: Some(detected.kind),
+                ..OpenNotes::default()
+            };
+            return Ok(opened(store, doc, notes));
+        }
+    }
+    if fixable && options.repair {
+        if let Some(repaired) = repair(&text) {
+            let name = copy_name(name.as_deref(), "repaired.json");
+            if let Ok(doc) = Document::from_text(&repaired.json, Some(name)) {
+                let notes = OpenNotes {
+                    repairs: repaired.notes,
+                    ..OpenNotes::default()
+                };
+                return Ok(opened(store, doc, notes));
+            }
+        }
+    }
+    Ok(OpenOutcome::Failed(OpenFailure {
+        detail,
+        too_large_to_fix: !fixable,
+        diagnosis: diagnose(&text),
+    }))
+}
+
+fn opened(store: &DocStore, doc: Document, notes: OpenNotes) -> OpenOutcome {
     let summary = doc.summary();
     let handle = store.insert(doc);
-    Ok(OpenResult { handle, summary })
+    OpenOutcome::Opened(OpenedDoc {
+        handle,
+        summary,
+        notes,
+    })
 }
 
-// Piped input arrives as a temp file from the `pandia -` launcher. It opens as an unsaved
-// "stdin" document, so Save asks where to keep it instead of writing to the temp file.
-fn open_piped(path: &str) -> DocResult<Document> {
-    if !crate::cli::is_stdin_handoff(path) {
-        return Err(DocError::file(
-            FileOp::Open,
-            std::path::Path::new(path),
-            std::io::ErrorKind::NotFound.into(),
-        ));
+fn read_source(source: OpenSource) -> DocResult<(String, Option<String>, Option<String>)> {
+    match source {
+        OpenSource::File { path } => {
+            let text = Document::read_text_file(std::path::Path::new(&path))?;
+            Ok((text, Some(path.clone()), Some(path)))
+        }
+        OpenSource::Text { text, name } => Ok((text, name, None)),
+        OpenSource::Piped { path } => {
+            let file = std::path::Path::new(&path);
+            if !crate::cli::is_stdin_handoff(&path) {
+                return Err(DocError::file(
+                    FileOp::Open,
+                    file,
+                    std::io::ErrorKind::NotFound.into(),
+                ));
+            }
+            let text =
+                std::fs::read_to_string(file).map_err(|e| DocError::file(FileOp::Open, file, e))?;
+            Ok((text, Some("stdin".into()), None))
+        }
     }
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| DocError::file(FileOp::Open, std::path::Path::new(path), e))?;
-    Document::from_text(&text, Some("stdin".into()))
+}
+
+fn copy_name(name: Option<&str>, suffix: &str) -> String {
+    let stem = name
+        .and_then(|n| std::path::Path::new(n).file_stem())
+        .map_or_else(|| "untitled".into(), |s| s.to_string_lossy().into_owned());
+    format!("{stem}.{suffix}")
 }
 
 fn doc_close_inner(store: &DocStore, handle: DocHandle) -> bool {
@@ -330,17 +432,6 @@ fn doc_export_to_file_inner(
     doc.export_to_file(format, path)
 }
 
-fn doc_set_file_path_inner(
-    store: &DocStore,
-    handle: DocHandle,
-    path: String,
-) -> DocResult<Summary> {
-    let arc = store.get(handle).ok_or(DocError::NotFound(handle))?;
-    let mut doc = arc.write();
-    doc.set_file_path(path);
-    Ok(doc.summary())
-}
-
 fn doc_replace_inner(
     store: &DocStore,
     handle: DocHandle,
@@ -379,9 +470,10 @@ fn doc_generate_types_inner(
 pub async fn doc_open(
     state: tauri::State<'_, Arc<DocStore>>,
     source: OpenSource,
-) -> Result<OpenResult, WireError> {
+    options: OpenOptions,
+) -> Result<OpenOutcome, WireError> {
     let store = state.inner().clone();
-    run_blocking(move || doc_open_inner(&store, source)).await
+    run_blocking(move || doc_open_inner(&store, source, options)).await
 }
 
 #[tauri::command]
@@ -845,24 +937,6 @@ pub async fn cancel_job(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn doc_repair_text(text: String) -> Result<RepairResult, WireError> {
-    run_blocking(move || Ok(repair_string(&text))).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn doc_detect_and_convert(text: String) -> Result<DetectResult, WireError> {
-    run_blocking(move || Ok(detect_and_convert(&text))).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn doc_diagnose(text: String) -> Result<Diagnosis, WireError> {
-    run_blocking(move || Ok(diagnose(&text))).await
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn doc_history(
     state: tauri::State<'_, Arc<DocStore>>,
     handle: DocHandle,
@@ -887,7 +961,6 @@ fn cli_reply_inner(store: &DocStore, handle: DocHandle, path: &str) -> DocResult
     doc.save_copy(path)
 }
 
-/// Sends a piped document back to the terminal waiting on it.
 #[tauri::command]
 #[specta::specta]
 pub async fn cli_reply(
@@ -906,16 +979,6 @@ pub async fn cli_reply(
     }
     let store = store.inner().clone();
     run_blocking(move || cli_reply_inner(&store, handle, &path)).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn doc_set_file_path(
-    state: tauri::State<'_, Arc<DocStore>>,
-    handle: DocHandle,
-    path: String,
-) -> Result<Summary, WireError> {
-    doc_set_file_path_inner(&state, handle, path).map_err(WireError::from)
 }
 
 #[tauri::command]
@@ -1051,6 +1114,128 @@ mod tests {
     use super::*;
     use crate::doc::types::{NodeKind, PathSegment};
 
+    fn doc_open_inner(store: &DocStore, source: OpenSource) -> DocResult<OpenedDoc> {
+        match super::doc_open_inner(store, source, OpenOptions::default())? {
+            OpenOutcome::Opened(doc) => Ok(doc),
+            OpenOutcome::Failed(f) => Err(DocError::Parse(f.detail)),
+        }
+    }
+
+    fn open_file(store: &DocStore, name: &str, body: &str, repair: bool) -> OpenOutcome {
+        static CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("pandia-open-{}-{call}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, body).unwrap();
+        let path = path.to_string_lossy().into_owned();
+        super::doc_open_inner(store, OpenSource::File { path }, OpenOptions { repair }).unwrap()
+    }
+
+    const CUT_OFF: &str = r#"[{"id":1,"url":"https://example.com/a","name":"first"},{"id":2,"url":"https://example.com/b","name":"second"},{"id":3,"name":"cut off her"#;
+
+    #[test]
+    fn a_valid_file_opens_attached_to_its_file_with_no_notes() {
+        let store = DocStore::new();
+        let OpenOutcome::Opened(doc) = open_file(&store, "ok.json", r#"{"a": 1}"#, true) else {
+            panic!("expected to open");
+        };
+        assert!(doc.summary.file_backed);
+        assert!(doc.notes.converted_from.is_none() && doc.notes.repairs.is_empty());
+    }
+
+    #[test]
+    fn yaml_opens_as_an_unsaved_json_copy() {
+        let store = DocStore::new();
+        let OpenOutcome::Opened(doc) =
+            open_file(&store, "data.yaml", "a: 1\nb:\n  - 2\n  - 3\n", false)
+        else {
+            panic!("expected to convert");
+        };
+        assert_eq!(doc.notes.converted_from, Some(DetectKind::Yaml));
+        assert_eq!(doc.summary.source_path.as_deref(), Some("data.json"));
+        assert!(!doc.summary.file_backed);
+    }
+
+    #[test]
+    fn broken_json_repairs_into_an_unsaved_copy_that_keeps_every_value() {
+        let store = DocStore::new();
+        let OpenOutcome::Opened(doc) = open_file(&store, "cut.json", CUT_OFF, true) else {
+            panic!("expected to repair");
+        };
+        assert_eq!(
+            doc.summary.source_path.as_deref(),
+            Some("cut.repaired.json")
+        );
+        assert!(
+            !doc.summary.file_backed,
+            "Save must not default to the broken original"
+        );
+        assert_eq!(doc.summary.root_child_count, Some(3));
+        assert!(doc
+            .notes
+            .repairs
+            .iter()
+            .any(|n| n.contains("may be incomplete")));
+        let url = doc_get_value_inner(
+            &store,
+            doc.handle,
+            &Path(vec![PathSegment::Index(0), PathSegment::Key("url".into())]),
+        )
+        .unwrap();
+        assert_eq!(url, serde_json::json!("https://example.com/a"));
+    }
+
+    #[test]
+    fn broken_json_fails_with_a_diagnosis_when_repair_is_off() {
+        let store = DocStore::new();
+        let OpenOutcome::Failed(f) = open_file(&store, "cut.json", CUT_OFF, false) else {
+            panic!("expected to fail");
+        };
+        assert!(!f.detail.is_empty());
+        assert!(!f.too_large_to_fix);
+        assert!(
+            f.diagnosis.fix.is_some(),
+            "the diagnosis still offers its repair"
+        );
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn broken_json_is_never_converted_as_yaml() {
+        let store = DocStore::new();
+        let outcome = open_file(&store, "x.json", r#"{"a": 1 "b": 2}"#, false);
+        assert!(matches!(outcome, OpenOutcome::Failed(_)));
+    }
+
+    #[test]
+    fn text_over_the_fix_limit_fails_without_repairing() {
+        let store = DocStore::new();
+        let source = OpenSource::Text {
+            text: CUT_OFF.into(),
+            name: None,
+        };
+        let outcome =
+            open_with_fix_limit(&store, source, OpenOptions { repair: true }, 10).unwrap();
+        let OpenOutcome::Failed(f) = outcome else {
+            panic!("expected to fail");
+        };
+        assert!(f.too_large_to_fix);
+    }
+
+    #[test]
+    fn a_missing_file_is_still_an_error() {
+        let store = DocStore::new();
+        let path = "/definitely/not/here.json".to_string();
+        let err = super::doc_open_inner(
+            &store,
+            OpenSource::File { path },
+            OpenOptions { repair: true },
+        )
+        .unwrap_err();
+        assert!(matches!(err, DocError::Io { .. }));
+    }
+
     #[test]
     fn open_text_returns_handle_and_summary() {
         let store = DocStore::new();
@@ -1172,7 +1357,6 @@ mod tests {
         let opened = doc_open_inner(
             &store,
             OpenSource::Text {
-                // 19 digits — beyond f64's exact integer range.
                 text: r#"{"id": 123456789012345678}"#.into(),
                 name: None,
             },

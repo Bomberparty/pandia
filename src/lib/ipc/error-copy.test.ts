@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { IpcError, type IpcErrorKind } from './error';
-import { describeError } from './error-copy';
+import { describeError, describeOpenFailure } from './error-copy';
 import type { FileOp, IoProblem } from './bindings';
 
 describe('describeError — backend kinds', () => {
@@ -162,5 +162,16 @@ describe('describeError — degradation', () => {
 			expect(msg).toBe('Something went wrong.');
 		}
 		expect(describeError('plain thrown string')).toBe('plain thrown string.');
+	});
+});
+
+describe('describeOpenFailure', () => {
+	it('names the parse problem, and says when a file is too large to fix', () => {
+		expect(describeOpenFailure({ detail: 'EOF at line 4 column 0', tooLargeToFix: false })).toBe(
+			"This isn't valid JSON: EOF at line 4 column 0.",
+		);
+		expect(describeOpenFailure({ detail: 'EOF at line 4 column 0', tooLargeToFix: true })).toBe(
+			"This isn't valid JSON: EOF at line 4 column 0. It's over 200.0 MiB, so Pandia can't repair or convert it automatically.",
+		);
 	});
 });

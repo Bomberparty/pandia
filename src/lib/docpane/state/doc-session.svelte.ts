@@ -1,30 +1,56 @@
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { ipc } from '$lib/ipc/client';
-import { IpcError, type IpcErrorKind } from '$lib/ipc/error';
-import { describeError } from '$lib/ipc/error-copy';
+import { describeError, describeOpenFailure } from '$lib/ipc/error-copy';
 import type {
 	ApplyResult,
 	Diagnosis,
+	DetectKind,
 	DocHandle,
 	Op,
-	OpenResult,
+	OpenNotes,
+	OpenOutcome,
 	OpenSource,
 	Path,
+	Summary,
 } from '$lib/ipc/bindings';
 import { isExpandable, rootRow } from '$lib/views/tree/logic/model';
 import { basename } from '$lib/util/path';
 import type { TreeRowsController } from '$lib/views/tree/state/tree-rows.svelte';
 import type { FindController } from '$lib/find/state/find.svelte';
 import type { CompareController } from '$lib/views/compare/state/compare.svelte';
-import {
-	runAutoRepair,
-	runFormatDetect,
-	readSourceText,
-	type RepairInfo,
-} from '../logic/doc-repair';
 import { behaviorPrefs } from '$lib/settings/state/behavior-prefs.svelte';
 import { addRecent } from '$lib/shell/state/recents-store.svelte';
 import type { Handoff } from '$lib/shell/state/handoff';
+
+const MAX_NOTES = 6;
+
+const FORMAT_NAMES: Record<DetectKind, string> = {
+	json: 'JSON',
+	yaml: 'YAML',
+	xml: 'XML',
+	csv: 'CSV',
+	curl: 'a cURL command',
+	unknown: 'another format',
+};
+
+/** What Pandia changed so a document could be opened, shown in a banner above it. */
+export interface RepairInfo {
+	title: string;
+	notes: string[];
+	more: number;
+}
+
+function repairInfoFrom(notes: OpenNotes): RepairInfo | null {
+	if (notes.convertedFrom) {
+		return { title: `converted from ${FORMAT_NAMES[notes.convertedFrom]}`, notes: [], more: 0 };
+	}
+	if (notes.repairs.length === 0) return null;
+	return {
+		title: 'repaired',
+		notes: notes.repairs.slice(0, MAX_NOTES),
+		more: Math.max(0, notes.repairs.length - MAX_NOTES),
+	};
+}
 
 export interface DocSessionDeps {
 	tree: TreeRowsController;
@@ -40,7 +66,7 @@ export interface DocSessionDeps {
 
 	flushPendingEdits: () => Promise<boolean>;
 
-	applyDefaultView: (summary: OpenResult['summary'] | null) => Promise<void>;
+	applyDefaultView: (summary: Summary | null) => Promise<void>;
 
 	flash: (msg: string) => void;
 
@@ -51,7 +77,7 @@ export interface DocSessionDeps {
 
 export class DocSessionController {
 	handle: DocHandle | null = $state(null);
-	summary: OpenResult['summary'] | null = $state(null);
+	summary: Summary | null = $state(null);
 	sourceName: string | null = $state(null);
 
 	repairInfo: RepairInfo | null = $state(null);
@@ -60,82 +86,46 @@ export class DocSessionController {
 	// Set when a terminal launch opened this document; it hears about saves.
 	handoff: Handoff | null = null;
 
-	private lastErrorKind: IpcErrorKind | null = null;
-
 	constructor(private deps: DocSessionDeps) {}
 
-	private load = async (opener: () => Promise<OpenResult>, name: string | null) => {
+	private load = async (opener: () => Promise<OpenOutcome>): Promise<boolean> => {
 		this.deps.setBusy(true);
 		this.deps.setError(null);
-		this.lastErrorKind = null;
 		try {
 			await this.reset();
-			const res = await opener();
-			this.handle = res.handle;
-			this.summary = res.summary;
-			this.sourceName = name ?? res.summary.sourcePath ?? '(inline)';
-			const root = rootRow(res.summary.rootKind, res.summary.rootChildCount);
+			const outcome = await opener();
+			if (outcome.kind === 'failed') {
+				this.deps.setError(describeOpenFailure(outcome));
+				this.diagnosis = outcome.diagnosis;
+				return false;
+			}
+			this.handle = outcome.handle;
+			this.summary = outcome.summary;
+			this.sourceName = outcome.summary.sourcePath ?? '(inline)';
+			this.repairInfo = repairInfoFrom(outcome.notes);
+			const root = rootRow(outcome.summary.rootKind, outcome.summary.rootChildCount);
 			this.deps.tree.setRows([root]);
 			this.deps.setSelectedPath(root.path);
 			if (isExpandable(root)) {
 				await this.deps.tree.toggleAt(0);
 			}
+			return true;
 		} catch (e) {
 			this.deps.setError(describeError(e));
-			this.lastErrorKind = e instanceof IpcError ? e.kind : null;
+			return false;
 		} finally {
 			this.deps.setBusy(false);
 		}
 	};
 
-	loadFromSource = async (source: OpenSource) => {
+	loadFromSource = async (source: OpenSource): Promise<boolean> => {
 		await this.deps.applyDefaultView(null);
-		const name =
-			source.kind === 'file'
-				? source.path
-				: source.kind === 'piped'
-					? 'stdin'
-					: (source.name ?? '(inline)');
-		await this.load(() => ipc.docOpen(source), name);
-		if (this.deps.getError() !== null) {
-			await runFormatDetect(source, {
-				error: () => this.deps.getError(),
-				errorKind: () => this.lastErrorKind,
-				reopen: (text, n) => this.load(() => ipc.docOpen({ kind: 'text', text, name: n }), n),
-			});
-		}
-		if (this.deps.getError() !== null) {
-			await runAutoRepair(source, name, {
-				enabled: () => behaviorPrefs.autoRepairOnOpen,
-				error: () => this.deps.getError(),
-				errorKind: () => this.lastErrorKind,
-				reopen: (text, n) => this.load(() => ipc.docOpen({ kind: 'text', text, name: n }), n),
-				handle: () => this.handle,
-				setSummary: (s) => {
-					this.summary = s;
-				},
-				setRepairInfo: (info) => {
-					this.repairInfo = info;
-				},
-			});
-		}
-		if (source.kind === 'file' && this.deps.getError() === null) {
-			addRecent(source.path, undefined, this.summary?.sourceSize);
-		}
-		if (this.deps.getError() === null) {
-			await this.deps.applyDefaultView(this.summary);
-			return true;
-		}
-
-		const text = await readSourceText(source);
-		if (text != null) {
-			try {
-				this.diagnosis = await ipc.docDiagnose(text);
-			} catch {
-				this.diagnosis = null;
-			}
-		}
-		return false;
+		await behaviorPrefs.init();
+		const repair = behaviorPrefs.autoRepairOnOpen;
+		if (!(await this.load(() => ipc.docOpen(source, { repair })))) return false;
+		if (source.kind === 'file') addRecent(source.path, undefined, this.summary?.sourceSize);
+		await this.deps.applyDefaultView(this.summary);
+		return true;
 	};
 
 	applyDiagnosisFix = async (text: string): Promise<boolean> => {

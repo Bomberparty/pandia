@@ -6,7 +6,7 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	docOpen: (source: OpenSource) => __TAURI_INVOKE<OpenResult>("doc_open", { source }),
+	docOpen: (source: OpenSource, options: OpenOptions) => __TAURI_INVOKE<OpenOutcome>("doc_open", { source, options }),
 	docClose: (handle: DocHandle) => __TAURI_INVOKE<boolean>("doc_close", { handle }),
 	docGetSlice: (handle: DocHandle, path: Path, start: number, end: number) => __TAURI_INVOKE<NodeView[]>("doc_get_slice", { handle, path, start, end }),
 	docGetValue: (handle: DocHandle, path: Path) => __TAURI_INVOKE<string & { readonly __brand: "LosslessText" }>("doc_get_value", { handle, path }),
@@ -37,15 +37,11 @@ export const commands = {
 	docSearch: (handle: DocHandle, opts: SearchOptions, jobId: string | null) => __TAURI_INVOKE<SearchHit[]>("doc_search", { handle, opts, jobId }),
 	cancelJob: (jobId: string) => __TAURI_INVOKE<boolean>("cancel_job", { jobId }),
 	docReplace: (handle: DocHandle, query: string, replacement: string, caseSensitive: boolean) => __TAURI_INVOKE<ReplaceResult>("doc_replace", { handle, query, replacement, caseSensitive }),
-	docRepairText: (text: string) => __TAURI_INVOKE<RepairResult>("doc_repair_text", { text }),
 	docValidateSchema: (handle: DocHandle, schema: string) => __TAURI_INVOKE<SchemaValidationResult>("doc_validate_schema", { handle, schema }),
 	readSchemaFile: (path: string) => __TAURI_INVOKE<string>("read_schema_file", { path }),
 	docGenerateTypes: (handle: DocHandle, lang: TypegenLang, typeName: string) => __TAURI_INVOKE<string>("doc_generate_types", { handle, lang, typeName }),
-	docDetectAndConvert: (text: string) => __TAURI_INVOKE<DetectResult>("doc_detect_and_convert", { text }),
-	docDiagnose: (text: string) => __TAURI_INVOKE<Diagnosis>("doc_diagnose", { text }),
 	docHistory: (handle: DocHandle) => __TAURI_INVOKE<HistoryView>("doc_history", { handle }),
 	docSave: (handle: DocHandle, path: string | null) => __TAURI_INVOKE<SaveResult>("doc_save", { handle, path }),
-	docSetFilePath: (handle: DocHandle, path: string) => __TAURI_INVOKE<Summary>("doc_set_file_path", { handle, path }),
 	docBackup: (handle: DocHandle, displayName: string | null) => __TAURI_INVOKE<boolean>("doc_backup", { handle, displayName }),
 	docBackupClear: (docId: string) => __TAURI_INVOKE<null>("doc_backup_clear", { docId }),
 	docBackupScan: () => __TAURI_INVOKE<BackupRecord[]>("doc_backup_scan"),
@@ -116,12 +112,6 @@ export type ColumnValues = {
 };
 
 export type DetectKind = "json" | "yaml" | "xml" | "csv" | "curl" | "unknown";
-
-export type DetectResult = {
-	kind: DetectKind,
-	json: string,
-	error: string | null,
-};
 
 export type Diagnosis = {
 	title: string,
@@ -236,12 +226,40 @@ export type OpDescription = {
 	pathDisplay: string,
 };
 
-export type OpenResult = {
-	handle: DocHandle,
-	summary: Summary,
+export type OpenFailure = {
+	detail: string,
+	tooLargeToFix: boolean,
+	diagnosis: Diagnosis,
 };
 
+/**  What Pandia changed so the source could be read. Recovery notes live on the summary. */
+export type OpenNotes = {
+	convertedFrom: DetectKind | null,
+	repairs: string[],
+};
+
+export type OpenOptions = {
+	/**  Repair broken JSON instead of failing; the auto-repair setting. */
+	repair: boolean,
+};
+
+/**
+ *  The single result of trying to open a source. Problems the person can fix are a
+ *  failed outcome; file-system errors stay errors.
+ */
+export type OpenOutcome = {
+	kind: "opened",
+} & OpenedDoc | {
+	kind: "failed",
+} & OpenFailure;
+
 export type OpenSource = { kind: "file"; path: string } | { kind: "text"; text: string; name: string | null } | { kind: "piped"; path: string };
+
+export type OpenedDoc = {
+	handle: DocHandle,
+	summary: Summary,
+	notes: OpenNotes,
+};
 
 export type Path = PathSegment[];
 
@@ -259,17 +277,6 @@ export type PendingFile = {
 export type RecentFile = {
 	path: string,
 	name: string,
-};
-
-export type RepairResult = {
-	success: boolean,
-	repairedJson: string,
-	errors: string[],
-	warnings: string[],
-	originalLength: number,
-	repairedLength: number,
-	wasUnescaped: boolean,
-	cleanedUp: boolean,
 };
 
 export type ReplaceResult = {

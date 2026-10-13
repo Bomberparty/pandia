@@ -93,14 +93,11 @@ fn convertible_format(text: &str) -> Option<Diagnosis> {
 }
 
 fn repair_fix(text: &str) -> Option<DiagnosisFix> {
-    let r = repair::repair(text);
-    if !r.success {
-        return None;
-    }
+    let r = repair::repair(text)?;
     Some(DiagnosisFix {
         label: "Repair and load".into(),
-        text: r.repaired_json,
-        warnings: r.warnings,
+        text: r.json,
+        warnings: r.notes,
     })
 }
 

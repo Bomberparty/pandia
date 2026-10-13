@@ -1,46 +1,17 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 static UNESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\\+)(.)").unwrap());
 
 static IS_ESCAPED_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\\+["/nrtbf]"#).unwrap());
 
-static QUOTE_RUN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\\+""#).unwrap());
+const SAMPLE_HEAD_TAIL: usize = 50_000;
 
-fn common_replacements() -> &'static [(Regex, &'static str)] {
-    static SET: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
-        vec![
-            (Regex::new(r",(\s*[}\]])").unwrap(), "$1"),
-            (
-                Regex::new(r"([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:").unwrap(),
-                "$1\"$2\":",
-            ),
-            (Regex::new(r"'").unwrap(), "\""),
-            (Regex::new(r"(?i):\s*undefined").unwrap(), ": null"),
-            (Regex::new(r"(?i):\s*NaN").unwrap(), ": null"),
-            (Regex::new(r"(?i):\s*Infinity").unwrap(), ": null"),
-            (Regex::new(r"(?i):\s*-Infinity").unwrap(), ": null"),
-            (Regex::new(r",,+").unwrap(), ","),
-            (Regex::new(r"/\*[\s\S]*?\*/").unwrap(), ""),
-            (Regex::new(r"(?m)//.*$").unwrap(), ""),
-            (Regex::new(r#";(\s*["\w\[])"#).unwrap(), ",$1"),
-        ]
-    });
-    &SET
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RepairResult {
-    pub success: bool,
-    pub repaired_json: String,
-    pub errors: Vec<String>,
-    pub warnings: Vec<String>,
-    pub original_length: u32,
-    pub repaired_length: u32,
-    pub was_unescaped: bool,
-    pub cleaned_up: bool,
+#[derive(Debug, Clone)]
+pub struct Repaired {
+    pub json: String,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,9 +22,6 @@ pub struct DeepUnescapeResult {
     pub success: bool,
     pub error: Option<String>,
 }
-
-const FORMAT_THRESHOLD: usize = 500_000;
-const SAMPLE_HEAD_TAIL: usize = 50_000;
 
 pub fn unescape(text: &str) -> String {
     UNESCAPE_RE
@@ -96,22 +64,6 @@ pub fn is_escaped(text: &str) -> bool {
     IS_ESCAPED_RE.is_match(text)
 }
 
-pub fn get_escape_level(text: &str) -> u32 {
-    let sample = if text.len() > SAMPLE_HEAD_TAIL {
-        let end = nearest_boundary(text, SAMPLE_HEAD_TAIL, false);
-        &text[..end]
-    } else {
-        text
-    };
-    let max_len = QUOTE_RUN_RE
-        .find_iter(sample)
-        .take(10)
-        .map(|m| m.as_str().len() - 1)
-        .max()
-        .unwrap_or(0);
-    (max_len / 2 + max_len % 2) as u32
-}
-
 pub fn deep_unescape(text: &str, max_iterations: u32) -> DeepUnescapeResult {
     if text.is_empty() {
         return DeepUnescapeResult {
@@ -124,7 +76,7 @@ pub fn deep_unescape(text: &str, max_iterations: u32) -> DeepUnescapeResult {
     let mut current = text.to_string();
     let mut iterations: u32 = 0;
     while iterations < max_iterations {
-        if serde_json::from_str::<serde_json::Value>(&current).is_ok() {
+        if is_valid(&current) {
             return DeepUnescapeResult {
                 result: current,
                 iterations,
@@ -145,7 +97,7 @@ pub fn deep_unescape(text: &str, max_iterations: u32) -> DeepUnescapeResult {
             break;
         }
     }
-    match serde_json::from_str::<serde_json::Value>(&current) {
+    match serde_json::from_str::<serde::de::IgnoredAny>(&current) {
         Ok(_) => DeepUnescapeResult {
             result: current,
             iterations,
@@ -161,403 +113,566 @@ pub fn deep_unescape(text: &str, max_iterations: u32) -> DeepUnescapeResult {
     }
 }
 
-pub fn repair(input: &str) -> RepairResult {
-    let original_length = input.len() as u32;
-    let mut warnings: Vec<String> = Vec::new();
-    let errors: Vec<String> = Vec::new();
-
-    if input.is_empty() {
-        return RepairResult {
-            success: false,
-            repaired_json: input.to_string(),
-            errors: vec!["Input is not a valid string".to_string()],
-            warnings,
-            original_length,
-            repaired_length: 0,
-            was_unescaped: false,
-            cleaned_up: false,
-        };
-    }
-
-    let trimmed = input.trim().to_string();
-
-    match serde_json::from_str::<serde_json::Value>(&trimmed) {
-        Ok(parsed) => {
-            let formatted = format_value(&parsed, trimmed.len());
-            let len = formatted.len() as u32;
-            return RepairResult {
-                success: true,
-                repaired_json: formatted,
-                errors,
-                warnings,
-                original_length,
-                repaired_length: len,
-                was_unescaped: false,
-                cleaned_up: false,
-            };
-        }
-        Err(e) => warnings.push(format!("Initial parse failed: {e}")),
-    }
-
-    let mut current = trimmed.clone();
-    let mut was_unescaped = false;
-    if is_escaped(&current) {
-        let level = get_escape_level(&current);
-        let r = deep_unescape(&current, 5);
-        if let Some(err) = &r.error {
-            warnings.push(format!("Unescape warning: {err}"));
-        }
-        if r.success {
-            // `deep_unescape` claims success only when its result is parseable,
-            // but be defensive in case that invariant ever slips — fall through
-            // to the next repair stage instead of panicking.
-            match serde_json::from_str::<serde_json::Value>(&r.result) {
-                Ok(parsed) => {
-                    let formatted = format_value(&parsed, r.result.len());
-                    let len = formatted.len() as u32;
-                    warnings.push(format!(
-                        "Applied {} levels of unescaping (detected escape level: {})",
-                        r.iterations, level
-                    ));
-                    return RepairResult {
-                        success: true,
-                        repaired_json: formatted,
-                        errors,
-                        warnings,
-                        original_length,
-                        repaired_length: len,
-                        was_unescaped: true,
-                        cleaned_up: false,
-                    };
-                }
-                Err(e) => {
-                    warnings.push(format!(
-                        "Unescape success but parse failed ({e}), trying further repairs"
-                    ));
-                    current = r.result;
-                    was_unescaped = true;
-                }
-            }
-        } else if r.iterations > 0 {
-            current = r.result;
-            was_unescaped = true;
-            warnings.push(format!(
-                "Applied {} levels of unescaping (partial fix, detected escape level: {})",
-                r.iterations, level
-            ));
-        }
-    }
-
-    let cleaned = basic_cleanup(&current, &mut warnings);
-    let was_cleaned_up = cleaned != current;
-    if was_cleaned_up {
-        current = cleaned;
-    }
-
-    current = apply_common_fixes(&current, &mut warnings);
-    current = advanced_repairs(&current, &mut warnings);
-
-    match serde_json::from_str::<serde_json::Value>(&current) {
-        Ok(parsed) => {
-            let formatted = format_value(&parsed, current.len());
-            if formatted != trimmed {
-                warnings.push("JSON was modified during repair".to_string());
-            }
-            let len = formatted.len() as u32;
-            RepairResult {
-                success: true,
-                repaired_json: formatted,
-                errors,
-                warnings,
-                original_length,
-                repaired_length: len,
-                was_unescaped,
-                cleaned_up: was_cleaned_up,
-            }
-        }
-        Err(e) => {
-            let mut errs = errors.clone();
-            errs.push(format!("Final parse failed: {e}"));
-            RepairResult {
-                success: false,
-                repaired_json: trimmed,
-                errors: errs,
-                warnings,
-                original_length,
-                repaired_length: 0,
-                was_unescaped,
-                cleaned_up: was_cleaned_up,
-            }
-        }
-    }
+fn is_valid(text: &str) -> bool {
+    serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
 }
 
-fn format_value(v: &serde_json::Value, current_len: usize) -> String {
-    // serde_json::to_string on a `Value` does no IO and uses no custom
-    // serializer — the only failure mode is OOM, which the surrounding
-    // process can't meaningfully recover from anyway.
-    if current_len > FORMAT_THRESHOLD {
-        serde_json::to_string(v).expect("Value serialization is infallible")
-    } else {
-        serde_json::to_string_pretty(v).expect("Value serialization is infallible")
+pub fn repair(input: &str) -> Option<Repaired> {
+    let mut notes = Notes::default();
+    let body = strip_wrappers(input, &mut notes);
+    if body.trim().is_empty() {
+        return None;
     }
-}
-
-fn basic_cleanup(json: &str, warnings: &mut Vec<String>) -> String {
-    let mut s = json.to_string();
-
-    if s.starts_with('\u{feff}') {
-        s = s.trim_start_matches('\u{feff}').to_string();
-        warnings.push("Removed BOM (Byte Order Mark)".to_string());
+    if is_valid(body) {
+        return Some(Repaired {
+            json: body.to_string(),
+            notes: notes.sentences(),
+        });
     }
 
-    s = s.replace("\r\n", "\n").replace('\r', "\n");
-
-    s = s.trim().to_string();
-
-    if s.starts_with('(') && s.ends_with(')') && s.len() >= 2 {
-        s = s[1..s.len() - 1].trim().to_string();
-        warnings.push("Removed parentheses wrapper".to_string());
-    }
-
-    static JSONP_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r#"^\w+\s*\(\s*([\s\S]*?)\s*\)\s*;?\s*$"#).unwrap());
-    if let Some(caps) = JSONP_RE.captures(&s) {
-        if let Some(m) = caps.get(1) {
-            s = m.as_str().trim().to_string();
-            warnings.push("Removed JSONP callback wrapper".to_string());
+    let unescaped;
+    let mut body = body;
+    if is_escaped(body) {
+        let r = deep_unescape(body, 5);
+        if r.iterations > 0 {
+            notes.unescape_levels = r.iterations;
+            if r.success {
+                return Some(Repaired {
+                    json: r.result,
+                    notes: notes.sentences(),
+                });
+            }
+            unescaped = r.result;
+            body = &unescaped;
         }
     }
 
+    let json = Scanner::new(body.as_bytes(), &mut notes).run();
+    is_valid(&json).then(|| Repaired {
+        json,
+        notes: notes.sentences(),
+    })
+}
+
+fn strip_wrappers<'a>(input: &'a str, notes: &mut Notes) -> &'a str {
+    let mut s = input;
+    if let Some(rest) = s.strip_prefix('\u{feff}') {
+        s = rest;
+        notes.bom = true;
+    }
+    s = s.trim();
+    let callee_end = s
+        .bytes()
+        .position(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b == b'.'))
+        .unwrap_or(s.len());
+    let after_callee = s[callee_end..].trim_start();
+    if after_callee.starts_with('(') {
+        let inner_end = s.trim_end().trim_end_matches(';').trim_end();
+        if let Some(inner) = inner_end.strip_suffix(')') {
+            let open = s.len() - after_callee.len();
+            if open < inner.len() {
+                if callee_end > 0 {
+                    notes.jsonp = true;
+                } else {
+                    notes.parens = true;
+                }
+                return inner[open + 1..].trim();
+            }
+        }
+    }
     s
 }
 
-fn apply_common_fixes(json: &str, warnings: &mut Vec<String>) -> String {
-    let mut current = json.to_string();
-    for (re, replacement) in common_replacements() {
-        let next = re.replace_all(&current, *replacement).into_owned();
-        if next != current {
-            warnings.push(format!("Applied fix: {}", re.as_str()));
-            current = next;
+#[derive(Default)]
+struct Notes {
+    bom: bool,
+    jsonp: bool,
+    parens: bool,
+    unescape_levels: u32,
+    comments: u32,
+    trailing_commas: u32,
+    extra_commas: u32,
+    semicolons: u32,
+    single_quoted: u32,
+    quoted_keys: u32,
+    nulled: u32,
+    escapes: u32,
+    controls: u32,
+    mismatched: u32,
+    extra_closers: u32,
+    cut_in_string: bool,
+    dropped_keys: u32,
+    closed: u32,
+}
+
+fn count(n: u32, one: &str, many: &str) -> String {
+    if n == 1 {
+        one.to_string()
+    } else {
+        many.replace("{n}", &n.to_string())
+    }
+}
+
+impl Notes {
+    fn sentences(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut add = |cond: bool, text: String| {
+            if cond {
+                out.push(text);
+            }
+        };
+        add(self.bom, "Removed the byte order mark at the start.".into());
+        add(
+            self.jsonp,
+            "Removed the JSONP callback around the data.".into(),
+        );
+        add(
+            self.parens,
+            "Removed the parentheses around the data.".into(),
+        );
+        add(
+            self.unescape_levels > 0,
+            count(
+                self.unescape_levels,
+                "Unescaped JSON that was stored as a string.",
+                "Unescaped JSON that was stored as a string, {n} levels deep.",
+            ),
+        );
+        add(
+            self.comments > 0,
+            count(self.comments, "Removed a comment.", "Removed {n} comments."),
+        );
+        add(
+            self.trailing_commas > 0,
+            count(
+                self.trailing_commas,
+                "Removed a trailing comma.",
+                "Removed {n} trailing commas.",
+            ),
+        );
+        add(
+            self.extra_commas > 0,
+            count(
+                self.extra_commas,
+                "Removed an extra comma.",
+                "Removed {n} extra commas.",
+            ),
+        );
+        add(
+            self.semicolons > 0,
+            count(
+                self.semicolons,
+                "Replaced a semicolon between values with a comma.",
+                "Replaced {n} semicolons between values with commas.",
+            ),
+        );
+        add(
+            self.single_quoted > 0,
+            count(
+                self.single_quoted,
+                "Turned a single-quoted string into a double-quoted one.",
+                "Turned {n} single-quoted strings into double-quoted ones.",
+            ),
+        );
+        add(
+            self.quoted_keys > 0,
+            count(
+                self.quoted_keys,
+                "Added quotes around a key.",
+                "Added quotes around {n} keys.",
+            ),
+        );
+        add(
+            self.nulled > 0,
+            count(
+                self.nulled,
+                "Replaced an undefined, NaN or Infinity value with null.",
+                "Replaced {n} undefined, NaN or Infinity values with null.",
+            ),
+        );
+        add(
+            self.escapes > 0,
+            count(
+                self.escapes,
+                "Kept a backslash that didn't start a valid escape.",
+                "Kept {n} backslashes that didn't start a valid escape.",
+            ),
+        );
+        add(
+            self.controls > 0,
+            count(
+                self.controls,
+                "Escaped a line break or control character inside a string.",
+                "Escaped {n} line breaks or control characters inside strings.",
+            ),
+        );
+        add(
+            self.mismatched > 0,
+            count(
+                self.mismatched,
+                "Fixed a closing bracket that didn't match its opening one.",
+                "Fixed {n} closing brackets that didn't match their opening ones.",
+            ),
+        );
+        add(
+            self.extra_closers > 0,
+            count(
+                self.extra_closers,
+                "Removed a closing bracket with nothing to close.",
+                "Removed {n} closing brackets with nothing to close.",
+            ),
+        );
+        add(
+            self.cut_in_string,
+            "The file ended inside a string, so its last value may be incomplete.".into(),
+        );
+        add(
+            self.dropped_keys > 0,
+            count(
+                self.dropped_keys,
+                "Dropped the last key, which had no value.",
+                "Dropped {n} keys that had no value.",
+            ),
+        );
+        add(
+            self.closed > 0,
+            count(
+                self.closed,
+                "Closed a bracket the file ended without.",
+                "Closed {n} brackets the file ended without.",
+            ),
+        );
+        out
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Slot {
+    KeyOrEnd,
+    Colon,
+    Value,
+    CommaOrEnd,
+}
+
+struct Frame {
+    object: bool,
+    slot: Slot,
+    // Output length before the current member, so a key the file never gave a value can go.
+    member_start: usize,
+}
+
+struct Scanner<'a> {
+    src: &'a [u8],
+    i: usize,
+    out: Vec<u8>,
+    stack: Vec<Frame>,
+    pending_comma: bool,
+    notes: &'a mut Notes,
+}
+
+impl<'a> Scanner<'a> {
+    fn new(src: &'a [u8], notes: &'a mut Notes) -> Self {
+        Self {
+            src,
+            i: 0,
+            out: Vec::with_capacity(src.len() + 16),
+            stack: Vec::new(),
+            pending_comma: false,
+            notes,
         }
     }
-    current
-}
 
-fn advanced_repairs(json: &str, warnings: &mut Vec<String>) -> String {
-    let mut current = fix_bracket_mismatches(json, warnings);
-    current = fix_unquoted_keys(&current, warnings);
-    current = fix_string_escaping(&current, warnings);
-    current
-}
+    fn run(mut self) -> String {
+        while self.i < self.src.len() {
+            let b = self.src[self.i];
+            match b {
+                b' ' | b'\t' | b'\n' | b'\r' => {
+                    self.out.push(b);
+                    self.i += 1;
+                }
+                b'"' | b'\'' => self.string(b),
+                b'/' if self.peek(1) == Some(b'/') || self.peek(1) == Some(b'*') => self.comment(),
+                b'{' | b'[' => {
+                    self.begin_token();
+                    self.out.push(b);
+                    self.i += 1;
+                    let start = self.out.len();
+                    self.stack.push(Frame {
+                        object: b == b'{',
+                        slot: if b == b'{' {
+                            Slot::KeyOrEnd
+                        } else {
+                            Slot::Value
+                        },
+                        member_start: start,
+                    });
+                }
+                b'}' | b']' => self.close(b),
+                b',' => self.comma(),
+                b';' => {
+                    if self.top_slot() == Some(Slot::CommaOrEnd) {
+                        self.notes.semicolons += 1;
+                        self.comma();
+                    } else {
+                        self.i += 1;
+                    }
+                }
+                b':' => {
+                    if self.top_slot() == Some(Slot::Colon) {
+                        self.set_slot(Slot::Value);
+                    }
+                    self.out.push(b);
+                    self.i += 1;
+                }
+                b'-' if self.word_at(self.i + 1) == b"Infinity" => {
+                    self.begin_token();
+                    self.out.extend_from_slice(b"null");
+                    self.notes.nulled += 1;
+                    self.i += 1 + b"Infinity".len();
+                    self.after_value();
+                }
+                b if b.is_ascii_alphabetic() || b == b'_' || b == b'$' => self.word(),
+                b if b.is_ascii_digit() || b == b'-' || b == b'+' || b == b'.' => self.number(),
+                _ => {
+                    self.out.push(b);
+                    self.i += 1;
+                }
+            }
+        }
+        self.finish();
+        String::from_utf8(self.out).unwrap_or_default()
+    }
 
-fn fix_bracket_mismatches(json: &str, warnings: &mut Vec<String>) -> String {
-    let bytes: Vec<char> = json.chars().collect();
-    let mut stack: Vec<char> = Vec::new();
-    let mut out = String::with_capacity(json.len());
-    let mut i = 0;
-    let mut unterminated_string = false;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c == '"' {
-            out.push(c);
-            i += 1;
-            let mut closed = false;
-            while i < bytes.len() {
-                if bytes[i] == '"' {
-                    closed = true;
+    fn peek(&self, ahead: usize) -> Option<u8> {
+        self.src.get(self.i + ahead).copied()
+    }
+
+    fn top_slot(&self) -> Option<Slot> {
+        self.stack.last().map(|f| f.slot)
+    }
+
+    fn set_slot(&mut self, slot: Slot) {
+        if let Some(f) = self.stack.last_mut() {
+            f.slot = slot;
+        }
+    }
+
+    fn in_key_position(&self) -> bool {
+        matches!(self.stack.last(), Some(f) if f.object && f.slot == Slot::KeyOrEnd)
+    }
+
+    fn begin_token(&mut self) {
+        let key = self.in_key_position();
+        if key {
+            let start = self.out.len();
+            if let Some(f) = self.stack.last_mut() {
+                f.member_start = start;
+            }
+        }
+        if self.pending_comma {
+            self.out.push(b',');
+            self.pending_comma = false;
+        }
+    }
+
+    fn after_value(&mut self) {
+        if let Some(f) = self.stack.last_mut() {
+            if f.slot == Slot::Value || (!f.object && f.slot != Slot::CommaOrEnd) {
+                f.slot = Slot::CommaOrEnd;
+            }
+        }
+    }
+
+    fn after_scalar_token(&mut self, was_key: bool) {
+        if was_key {
+            self.set_slot(Slot::Colon);
+        } else {
+            self.after_value();
+        }
+    }
+
+    fn string(&mut self, quote: u8) {
+        let was_key = self.in_key_position();
+        self.begin_token();
+        if quote == b'\'' {
+            self.notes.single_quoted += 1;
+        }
+        self.out.push(b'"');
+        self.i += 1;
+        loop {
+            let Some(&b) = self.src.get(self.i) else {
+                self.notes.cut_in_string = true;
+                self.out.push(b'"');
+                break;
+            };
+            self.i += 1;
+            match b {
+                _ if b == quote => {
+                    self.out.push(b'"');
                     break;
                 }
-                if bytes[i] == '\\' {
-                    out.push(bytes[i]);
-                    if i + 1 < bytes.len() {
-                        out.push(bytes[i + 1]);
-                        i += 2;
-                    } else {
-                        i += 1;
-                    }
+                b'"' => self.out.extend_from_slice(b"\\\""),
+                b'\\' => self.escape(quote),
+                b'\n' => self.control(b"\\n"),
+                b'\r' => self.control(b"\\r"),
+                b'\t' => self.control(b"\\t"),
+                0x08 => self.control(b"\\b"),
+                0x0c => self.control(b"\\f"),
+                b if b < 0x20 => {
+                    self.notes.controls += 1;
+                    self.out.extend_from_slice(format!("\\u{b:04x}").as_bytes());
+                }
+                _ => self.out.push(b),
+            }
+        }
+        self.after_scalar_token(was_key);
+    }
+
+    fn control(&mut self, escaped: &[u8]) {
+        self.notes.controls += 1;
+        self.out.extend_from_slice(escaped);
+    }
+
+    fn escape(&mut self, quote: u8) {
+        let Some(&next) = self.src.get(self.i) else {
+            self.notes.escapes += 1;
+            self.out.extend_from_slice(b"\\\\");
+            return;
+        };
+        let hex4 = next == b'u'
+            && self
+                .src
+                .get(self.i + 1..self.i + 5)
+                .is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit));
+        if matches!(next, b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') || hex4 {
+            self.out.push(b'\\');
+            self.out.push(next);
+            self.i += 1;
+        } else if quote == b'\'' && next == b'\'' {
+            self.out.push(b'\'');
+            self.i += 1;
+        } else {
+            self.notes.escapes += 1;
+            self.out.extend_from_slice(b"\\\\");
+        }
+    }
+
+    fn comment(&mut self) {
+        self.notes.comments += 1;
+        if self.peek(1) == Some(b'/') {
+            while self.i < self.src.len() && self.src[self.i] != b'\n' {
+                self.i += 1;
+            }
+            return;
+        }
+        self.i += 2;
+        while self.i < self.src.len() && !(self.src[self.i] == b'*' && self.peek(1) == Some(b'/')) {
+            self.i += 1;
+        }
+        self.i = (self.i + 2).min(self.src.len());
+    }
+
+    fn comma(&mut self) {
+        self.i += 1;
+        match self.stack.last_mut() {
+            Some(f) if f.slot == Slot::CommaOrEnd && !self.pending_comma => {
+                f.slot = if f.object {
+                    Slot::KeyOrEnd
                 } else {
-                    out.push(bytes[i]);
-                    i += 1;
-                }
+                    Slot::Value
+                };
+                self.pending_comma = true;
             }
-            if closed {
-                out.push(bytes[i]);
-            } else {
-                unterminated_string = true;
-            }
-        } else if c == '{' || c == '[' {
-            stack.push(c);
-            out.push(c);
-        } else if c == '}' || c == ']' {
-            let expected = if c == '}' { '{' } else { '[' };
-            match stack.pop() {
-                Some(last) if last == expected => out.push(c),
-                Some(last) => {
-                    let correct = if last == '{' { '}' } else { ']' };
-                    out.push(correct);
-                    warnings.push(format!(
-                        "Fixed bracket mismatch: expected '{correct}' but found '{c}'"
-                    ));
-                }
-                None => {
-                    warnings.push(format!("Removed extra closing bracket '{c}'"));
-                }
-            }
+            _ => self.notes.extra_commas += 1,
+        }
+    }
+
+    fn close(&mut self, b: u8) {
+        self.i += 1;
+        if self.pending_comma {
+            self.pending_comma = false;
+            self.notes.trailing_commas += 1;
+        }
+        let Some(frame) = self.stack.pop() else {
+            self.notes.extra_closers += 1;
+            return;
+        };
+        self.drop_dangling_key(&frame);
+        let closer = if frame.object { b'}' } else { b']' };
+        if closer != b {
+            self.notes.mismatched += 1;
+        }
+        self.out.push(closer);
+        self.after_value();
+    }
+
+    fn drop_dangling_key(&mut self, frame: &Frame) {
+        if frame.object && matches!(frame.slot, Slot::Colon | Slot::Value) {
+            self.out.truncate(frame.member_start);
+            self.notes.dropped_keys += 1;
+        }
+    }
+
+    fn word_at(&self, at: usize) -> &'a [u8] {
+        let src = self.src;
+        let at = at.min(src.len());
+        let end = src[at..]
+            .iter()
+            .position(|b| !(b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$'))
+            .map_or(src.len(), |p| at + p);
+        &src[at..end]
+    }
+
+    fn word(&mut self) {
+        let word = self.word_at(self.i);
+        let len = word.len();
+        let was_key = self.in_key_position();
+        self.begin_token();
+        if was_key {
+            self.notes.quoted_keys += 1;
+            self.out.push(b'"');
+            self.out.extend_from_slice(word);
+            self.out.push(b'"');
         } else {
-            out.push(c);
-        }
-        i += 1;
-    }
-    if unterminated_string {
-        out.push('"');
-        warnings.push("Closed unterminated string at EOF".to_string());
-    }
-    while let Some(b) = stack.pop() {
-        let closing = if b == '{' { '}' } else { ']' };
-        out.push(closing);
-        warnings.push(format!("Added missing closing bracket '{closing}'"));
-    }
-    out
-}
-
-fn fix_unquoted_keys(json: &str, warnings: &mut Vec<String>) -> String {
-    static KEY_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:").unwrap());
-    // Single pass over the document. The capture group `[a-zA-Z_$][...]` can
-    // never start with a quote so the `is_quoted` check from the TS port is
-    // unnecessary; `should_be_quoted` still filters out already-valid bare
-    // identifiers like JS keywords that need wrapping.
-    let mut quoted: Vec<String> = Vec::new();
-    let result = KEY_RE
-        .replace_all(json, |caps: &regex::Captures| {
-            let prefix = &caps[1];
-            let key = &caps[2];
-            if should_be_quoted(key) {
-                quoted.push(key.to_string());
-                format!("{prefix}\"{key}\":")
-            } else {
-                caps[0].to_string()
+            match word {
+                b"undefined" | b"NaN" | b"Infinity" => {
+                    self.notes.nulled += 1;
+                    self.out.extend_from_slice(b"null");
+                }
+                _ => self.out.extend_from_slice(word),
             }
-        })
-        .into_owned();
-    for key in quoted {
-        warnings.push(format!("Added quotes around key: {key}"));
-    }
-    result
-}
-
-fn fix_string_escaping(json: &str, warnings: &mut Vec<String>) -> String {
-    static BAD_BACKSLASH_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"\\(?:[^"\\/bfnrtu]|u(?:[^0-9a-fA-F]|[0-9a-fA-F]{0,3}(?:[^0-9a-fA-F]|$)))"#)
-            .unwrap()
-    });
-    // `Cow::Owned` from `replace_all` means at least one substitution happened
-    // — no need to clone-and-compare to detect modification.
-    let after_backslash = match BAD_BACKSLASH_RE.replace_all(json, |caps: &regex::Captures| {
-        format!("\\\\{}", &caps[0][1..])
-    }) {
-        std::borrow::Cow::Borrowed(_) => json.to_string(),
-        std::borrow::Cow::Owned(s) => {
-            warnings.push("Fixed string escaping issues".to_string());
-            s
         }
-    };
+        self.i += len;
+        self.after_scalar_token(was_key);
+    }
 
-    let mut next = String::with_capacity(after_backslash.len());
-    let mut control_replaced = false;
-    for c in after_backslash.chars() {
-        let code = c as u32;
-        if code < 0x20 && code != 0x09 && code != 0x0a && code != 0x0d {
-            control_replaced = true;
-            match code {
-                8 => next.push_str("\\b"),
-                12 => next.push_str("\\f"),
-                _ => next.push_str(&format!("\\u{code:04x}")),
-            }
-        } else {
-            next.push(c);
+    fn number(&mut self) {
+        self.begin_token();
+        let start = self.i;
+        while self.i < self.src.len()
+            && matches!(
+                self.src[self.i],
+                b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E'
+            )
+        {
+            self.i += 1;
+        }
+        self.out.extend_from_slice(&self.src[start..self.i]);
+        self.after_value();
+    }
+
+    fn finish(&mut self) {
+        if self.pending_comma {
+            self.pending_comma = false;
+            self.notes.trailing_commas += 1;
+        }
+        while let Some(frame) = self.stack.pop() {
+            self.drop_dangling_key(&frame);
+            self.out.push(if frame.object { b'}' } else { b']' });
+            self.notes.closed += 1;
+            self.after_value();
         }
     }
-    if control_replaced {
-        warnings.push("Fixed string escaping issues".to_string());
-    }
-    next
-}
-
-fn should_be_quoted(key: &str) -> bool {
-    const KEYWORDS: &[&str] = &[
-        "abstract",
-        "arguments",
-        "await",
-        "boolean",
-        "break",
-        "byte",
-        "case",
-        "catch",
-        "char",
-        "class",
-        "const",
-        "continue",
-        "debugger",
-        "default",
-        "delete",
-        "do",
-        "double",
-        "else",
-        "enum",
-        "eval",
-        "export",
-        "extends",
-        "false",
-        "final",
-        "finally",
-        "float",
-        "for",
-        "function",
-        "goto",
-        "if",
-        "implements",
-        "import",
-        "in",
-        "instanceof",
-        "int",
-        "interface",
-        "let",
-        "long",
-        "native",
-        "new",
-        "null",
-        "package",
-        "private",
-        "protected",
-        "public",
-        "return",
-        "short",
-        "static",
-        "super",
-        "switch",
-        "synchronized",
-        "this",
-        "throw",
-        "throws",
-        "transient",
-        "true",
-        "try",
-        "typeof",
-        "var",
-        "void",
-        "volatile",
-        "while",
-        "with",
-        "yield",
-    ];
-    let lower = key.to_lowercase();
-    if KEYWORDS.contains(&lower.as_str()) {
-        return true;
-    }
-    static IDENT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z_$][a-zA-Z0-9_$]*$").unwrap());
-    !IDENT_RE.is_match(key)
 }
 
 fn nearest_boundary(s: &str, idx: usize, walking_back: bool) -> usize {
@@ -578,9 +693,6 @@ fn nearest_boundary(s: &str, idx: usize, walking_back: bool) -> usize {
 mod tests {
     use super::*;
 
-    // Test-only inverse of `unescape`. Lives here because the production code
-    // never re-escapes (we only decode incoming JSON), so it would otherwise
-    // be unused outside this module.
     static ESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"[\\"\u{0000}-\u{001F}/]"#).unwrap());
 
     fn escape(text: &str) -> String {
@@ -602,100 +714,85 @@ mod tests {
             .into_owned()
     }
 
+    fn fixed(input: &str) -> (serde_json::Value, Vec<String>) {
+        let r = repair(input).unwrap_or_else(|| panic!("repair failed for {input:?}"));
+        let v = serde_json::from_str(&r.json).expect("repaired text must be valid JSON");
+        (v, r.notes)
+    }
+
     #[test]
     fn already_valid_json_passes_through() {
-        let r = repair(r#"{"a": 1}"#);
-        assert!(r.success);
-        assert!(r.warnings.is_empty());
-        assert!(!r.was_unescaped);
-        assert!(!r.cleaned_up);
+        let r = repair(r#"{"a": 1}"#).unwrap();
+        assert_eq!(r.json, r#"{"a": 1}"#);
+        assert!(r.notes.is_empty());
     }
 
     #[test]
     fn trailing_comma_in_object() {
-        let r = repair(r#"{"a": 1,}"#);
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, notes) = fixed(r#"{"a": 1,}"#);
         assert_eq!(v["a"], 1);
+        assert_eq!(notes, ["Removed a trailing comma."]);
     }
 
     #[test]
     fn trailing_comma_in_array() {
-        let r = repair(r#"[1, 2, 3,]"#);
-        assert!(r.success);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, _) = fixed(r#"[1, 2, 3,]"#);
         assert_eq!(v.as_array().unwrap().len(), 3);
     }
 
     #[test]
     fn single_quotes_converted_to_double() {
-        let r = repair("{'a': 'hello'}");
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, _) = fixed("{'a': 'hello'}");
         assert_eq!(v["a"], "hello");
     }
 
     #[test]
     fn unquoted_keys_get_quoted() {
-        let r = repair("{a: 1, b: 2}");
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, notes) = fixed("{a: 1, b: 2}");
         assert_eq!(v["a"], 1);
         assert_eq!(v["b"], 2);
+        assert!(notes.contains(&"Added quotes around 2 keys.".to_string()));
     }
 
     #[test]
     fn comments_removed() {
-        let r = repair(
-            r#"{"a": 1 , "b": 2 // line
-}"#,
-        );
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, _) = fixed("{\"a\": 1 , \"b\": 2 // line\n}");
         assert_eq!(v["a"], 1);
         assert_eq!(v["b"], 2);
     }
 
     #[test]
     fn undefined_nan_infinity_become_null() {
-        let r = repair(r#"{"a": undefined, "b": NaN, "c": Infinity}"#);
-        assert!(r.success);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
-        assert!(v["a"].is_null());
-        assert!(v["b"].is_null());
-        assert!(v["c"].is_null());
+        let (v, _) = fixed(r#"{"a": undefined, "b": NaN, "c": Infinity, "d": -Infinity}"#);
+        for k in ["a", "b", "c", "d"] {
+            assert!(v[k].is_null(), "{k}");
+        }
     }
 
     #[test]
     fn missing_closing_bracket() {
-        let r = repair(r#"{"a": [1, 2"#);
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, notes) = fixed(r#"{"a": [1, 2"#);
         assert_eq!(v["a"].as_array().unwrap().len(), 2);
+        assert!(notes.contains(&"Closed 2 brackets the file ended without.".to_string()));
     }
 
     #[test]
     fn mismatched_closing_bracket() {
-        let r = repair(r#"{"a": [1, 2}"#);
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, _) = fixed(r#"{"a": [1, 2}"#);
         assert_eq!(v["a"].as_array().unwrap().len(), 2);
     }
 
     #[test]
     fn jsonp_callback_unwrapped() {
-        let r = repair("callback({\"a\": 1})");
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, notes) = fixed("callback({\"a\": 1});");
         assert_eq!(v["a"], 1);
+        assert_eq!(notes, ["Removed the JSONP callback around the data."]);
     }
 
     #[test]
     fn bom_stripped() {
-        let s = format!("\u{feff}{}", r#"{"a": 1}"#);
-        let r = repair(&s);
-        assert!(r.success);
-        assert!(r.warnings.iter().any(|w| w.contains("BOM")));
+        let (_, notes) = fixed(&format!("\u{feff}{}", r#"{"a": 1}"#));
+        assert_eq!(notes, ["Removed the byte order mark at the start."]);
     }
 
     #[test]
@@ -718,46 +815,117 @@ mod tests {
 
     #[test]
     fn deep_unescape_handles_triple_escape() {
-        let once = r#"{\"a\": 1}"#;
-        let twice = unescape(once); // unescape goes the OTHER direction; build via escape
-        let valid = r#"{"a":1}"#;
-        let step1 = escape(valid); // `{\"a\":1}`
-        let step2 = escape(&step1); // `{\\\"a\\\":1}`
+        let step2 = escape(&escape(r#"{"a":1}"#));
         let r = deep_unescape(&step2, 5);
         assert!(r.success, "result: {} error: {:?}", r.result, r.error);
-        let _ = twice; // suppress unused; the explicit chain above is what we assert against
     }
 
     #[test]
-    fn empty_input_reports_error() {
-        let r = repair("");
-        assert!(!r.success);
-        assert_eq!(r.errors.len(), 1);
+    fn escaped_json_repairs_with_a_plain_note() {
+        let (v, notes) = fixed(r#"{\"a\": 1}"#);
+        assert_eq!(v["a"], 1);
+        assert_eq!(notes, ["Unescaped JSON that was stored as a string."]);
+    }
+
+    #[test]
+    fn empty_input_cannot_be_repaired() {
+        assert!(repair("").is_none());
+        assert!(repair("   ").is_none());
     }
 
     #[test]
     fn unterminated_string_at_eof_in_array() {
-        let r = repair(r#"[{"id": "abc"},{"id": "CPHR246457BD0"#);
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, notes) = fixed(r#"[{"id": "abc"},{"id": "CPHR246457BD0"#);
         let arr = v.as_array().expect("root must be array");
         assert_eq!(arr.len(), 2);
         assert_eq!(arr[1]["id"], "CPHR246457BD0");
-        assert!(r.warnings.iter().any(|w| w.contains("unterminated string")));
+        assert!(notes.contains(
+            &"The file ended inside a string, so its last value may be incomplete.".to_string()
+        ));
     }
 
     #[test]
     fn unterminated_string_in_simple_object() {
-        let r = repair(r#"{"key": "value"#);
-        assert!(r.success, "warnings: {:?}", r.warnings);
-        let v: serde_json::Value = serde_json::from_str(&r.repaired_json).unwrap();
+        let (v, _) = fixed(r#"{"key": "value"#);
         assert_eq!(v["key"], "value");
     }
 
     #[test]
     fn unrecoverable_garbage_reports_failure() {
-        let r = repair("@@@@##!!@@");
-        assert!(!r.success, "should fail: {:?}", r.repaired_json);
-        assert!(!r.errors.is_empty());
+        assert!(repair("@@@@##!!@@").is_none());
+    }
+
+    #[test]
+    fn never_changes_the_text_inside_strings() {
+        let (v, _) = fixed(
+            r#"[{"url": "https://example.com/a", "note": "it's fine", "c": "/* not a comment */", "n": "NaN", "k": "x: y, z"},]"#,
+        );
+        let row = &v[0];
+        assert_eq!(row["url"], "https://example.com/a");
+        assert_eq!(row["note"], "it's fine");
+        assert_eq!(row["c"], "/* not a comment */");
+        assert_eq!(row["n"], "NaN");
+        assert_eq!(row["k"], "x: y, z");
+    }
+
+    #[test]
+    fn a_cut_off_one_line_file_keeps_every_record() {
+        let (v, notes) = fixed(
+            r#"[{"id":1,"url":"https://example.com/a","name":"first"},{"id":2,"url":"https://example.com/b","name":"second"},{"id":3,"name":"cut off her"#,
+        );
+        let rows = v.as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["url"], "https://example.com/a");
+        assert_eq!(rows[1]["name"], "second");
+        assert_eq!(rows[2]["name"], "cut off her");
+        assert!(notes.iter().any(|n| n.contains("may be incomplete")));
+    }
+
+    #[test]
+    fn a_cut_off_multi_line_file_repairs() {
+        let (v, _) = fixed(
+            "[\n  {\"id\": 1, \"url\": \"https://example.com/a\", \"note\": \"it's fine\"},\n  {\"id\": 2, \"url\": \"https://example.com/b\", \"note\": \"ok\"\n",
+        );
+        let rows = v.as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["note"], "it's fine");
+        assert_eq!(rows[1]["url"], "https://example.com/b");
+    }
+
+    #[test]
+    fn a_key_the_file_never_gave_a_value_is_dropped() {
+        let (v, notes) = fixed(r#"{"a": 1, "b""#);
+        assert_eq!(v, serde_json::json!({ "a": 1 }));
+        assert!(notes.contains(&"Dropped the last key, which had no value.".to_string()));
+        let (v, _) = fixed(r#"{"a": 1, "b": "#);
+        assert_eq!(v, serde_json::json!({ "a": 1 }));
+    }
+
+    #[test]
+    fn single_quoted_strings_keep_their_double_quotes_and_apostrophes() {
+        let (v, _) = fixed(r#"{'say': 'she said "hi"', 'it': 'it\'s'}"#);
+        assert_eq!(v["say"], r#"she said "hi""#);
+        assert_eq!(v["it"], "it's");
+    }
+
+    #[test]
+    fn raw_line_breaks_in_strings_are_escaped_not_removed() {
+        let (v, notes) = fixed("{\"a\": \"line one\nline two\",}");
+        assert_eq!(v["a"], "line one\nline two");
+        assert!(notes
+            .contains(&"Escaped a line break or control character inside a string.".to_string()));
+    }
+
+    #[test]
+    fn notes_are_plain_sentences() {
+        let r = repair("{a: 1, /* c */ b: [1,,2],}").unwrap();
+        assert!(!r.notes.is_empty());
+        for note in &r.notes {
+            assert!(note.ends_with('.'), "{note}");
+            assert!(
+                !note.contains('\\') && !note.contains("(?"),
+                "no regex text: {note}"
+            );
+        }
     }
 }

@@ -1,5 +1,5 @@
 import { IpcError } from './error';
-import type { FileOp, IoProblem } from './bindings';
+import { EDIT_SIZE_LIMIT, type FileOp, type IoProblem, type OpenFailure } from './bindings';
 import { fmtBytes } from '$lib/util/format';
 import { basename, pathToString } from '$lib/util/path';
 
@@ -16,6 +16,13 @@ function sentence(s: string): string {
 
 function withDetail(lead: string, detail: string | undefined): string {
 	return detail ? sentence(`${lead}: ${detail}`) : sentence(lead);
+}
+
+export function describeOpenFailure(f: Pick<OpenFailure, 'detail' | 'tooLargeToFix'>): string {
+	const base = withDetail("This isn't valid JSON", f.detail);
+	return f.tooLargeToFix
+		? `${base} It's over ${fmtBytes(EDIT_SIZE_LIMIT)}, so Pandia can't repair or convert it automatically.`
+		: base;
 }
 
 export function describeError(e: unknown): string {

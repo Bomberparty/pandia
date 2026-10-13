@@ -14,13 +14,13 @@ import {
 	type VirtualGapRow,
 } from '../logic/model';
 import { collectExpandedDescendants } from '../logic/tree-walk';
-import type { DocHandle, OpenResult, Path } from '$lib/ipc/bindings';
+import type { DocHandle, Path, Summary } from '$lib/ipc/bindings';
 
 const CHUNK = 200;
 
 export interface TreeRowsDeps {
 	handle: () => DocHandle | null;
-	summary: () => OpenResult['summary'] | null;
+	summary: () => Summary | null;
 	setError: (msg: string) => void;
 }
 
@@ -103,7 +103,6 @@ export class TreeRowsController {
 		this.expanding.add(key);
 		try {
 			const children = await this.fetchInitialChunk(row.path, row.depth);
-			// The row may have moved or already expanded while we awaited.
 			const cur = this.rows[index];
 			if (cur?.variant !== 'content' || cur.expanded || pathKey(cur.path) !== key) return;
 			let total = cur.childCount;
