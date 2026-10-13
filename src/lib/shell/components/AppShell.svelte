@@ -34,7 +34,7 @@
 	import { sidebarPrefs } from '../state/sidebar-prefs.svelte';
 	import { ipc } from '$lib/ipc/client';
 	import type { BackupRecord, OpenSource, Path, PendingFile } from '$lib/ipc/bindings';
-	import { abandonCliLaunch, rememberCliLaunch, releaseCliTab } from '$lib/shell/state/cli-launch';
+	import { Handoff } from '$lib/shell/state/handoff';
 	import type { CompareTarget } from '$lib/views/compare/logic/compare-target';
 	import { PaneCommandBus } from '$lib/shell/state/pane-bus';
 	import { ConfirmController } from '$lib/ui/confirm.svelte';
@@ -312,9 +312,7 @@
 					}
 				} finally {
 					if (shouldClose) {
-						await Promise.all(
-							tabStore.tabs.map((t) => releaseCliTab(t.id, tabStore.contexts[t.id] ?? null)),
-						);
+						await tabStore.settleAll();
 						await win.destroy();
 					}
 				}
@@ -469,17 +467,17 @@
 		}
 		for (const file of pending) {
 			const { path, piped } = file;
+			const handoff = Handoff.needed(file) ? new Handoff(file) : null;
 			if (!(await maybeConfirmLargeFile(path))) {
-				void abandonCliLaunch(file, 'You chose not to open this large file.');
+				void handoff?.abandon('You chose not to open this large file.');
 				continue;
 			}
-			const tabId = tabStore.openInTab(piped ? { kind: 'piped', path } : { kind: 'file', path });
-			if (tabId) rememberCliLaunch(tabId, file);
-			else
-				void abandonCliLaunch(
-					file,
+			const source: OpenSource = piped ? { kind: 'piped', path } : { kind: 'file', path };
+			if (!tabStore.openInTab(source, { handoff })) {
+				void handoff?.abandon(
 					`Pandia already has ${MAX_TABS} tabs open. Close one, then run the command again.`,
 				);
+			}
 		}
 	}
 
@@ -592,6 +590,7 @@
 				<div class="pane-host" class:active={tab.id === tabStore.activeId}>
 					<DocPane
 						tabId={tab.id}
+						handoff={tab.handoff ?? null}
 						isActive={tab.id === tabStore.activeId}
 						onLabelChange={(label, sourceName) => tabStore.setLabel(tab.id, label, sourceName)}
 						onStatusChange={(status) => tabStore.setStatus(tab.id, status)}

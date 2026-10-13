@@ -1,6 +1,6 @@
 import { untrack } from 'svelte';
 import { schemaStore } from '$lib/panels/state/schema-store.svelte';
-import { releaseCliTab } from './cli-launch';
+import type { Handoff } from './handoff';
 import { statusEq, type DocStatus } from '$lib/shell/logic/status';
 import type { DocHandle, OpenSource } from '$lib/ipc/bindings';
 
@@ -8,6 +8,7 @@ export interface TabMeta {
 	id: string;
 	label: string;
 	sourceName: string | null;
+	handoff?: Handoff | null;
 }
 
 export interface DocContext {
@@ -16,7 +17,6 @@ export interface DocContext {
 	sourceName: string | null;
 
 	fileBacked: boolean;
-	saved: boolean;
 
 	save: (opts?: { silent?: boolean }) => Promise<boolean>;
 }
@@ -73,7 +73,7 @@ export class TabStore {
 	close = (id: string) => {
 		const idx = this.tabs.findIndex((t) => t.id === id);
 		if (idx < 0) return;
-		void releaseCliTab(id, this.contexts[id] ?? null);
+		void this.tabs[idx]?.handoff?.settle(id);
 		schemaStore.clear(id);
 		this.statuses = omit(this.statuses, id);
 		this.contexts = omit(this.contexts, id);
@@ -149,8 +149,7 @@ export class TabStore {
 					prev.handle === ctx.handle &&
 					prev.version === ctx.version &&
 					prev.sourceName === ctx.sourceName &&
-					prev.fileBacked === ctx.fileBacked &&
-					prev.saved === ctx.saved)
+					prev.fileBacked === ctx.fileBacked)
 			)
 				return;
 			this.contexts = { ...this.contexts, [id]: ctx };
@@ -168,9 +167,22 @@ export class TabStore {
 
 	isEmpty = (id: string): boolean => (this.statuses[id] ?? null) == null;
 
-	openInTab = (source: OpenSource, opts: { focus?: boolean } = {}): string | null => {
+	settleAll = (): Promise<unknown> => Promise.all(this.tabs.map((t) => t.handoff?.settle(t.id)));
+
+	// An empty tab whose hand-off still owes a terminal its report keeps showing why its file
+	// failed, so later opens go to a new tab.
+	private reusable(id: string): boolean {
+		return this.isEmpty(id) && !this.tabs.find((t) => t.id === id)?.handoff?.owes;
+	}
+
+	openInTab = (
+		source: OpenSource,
+		opts: { focus?: boolean; handoff?: Handoff | null } = {},
+	): string | null => {
 		const focus = opts.focus ?? true;
-		if (focus && this.isEmpty(this.activeId)) {
+		const handoff = opts.handoff ?? null;
+		if (focus && this.reusable(this.activeId)) {
+			this.tabs = this.tabs.map((t) => (t.id === this.activeId ? { ...t, handoff } : t));
 			this.setPendingOpen(this.activeId, source);
 			return this.activeId;
 		}
@@ -178,7 +190,7 @@ export class TabStore {
 			this.warnCap();
 			return null;
 		}
-		const t: TabMeta = { id: this.newId(), label: 'untitled', sourceName: null };
+		const t: TabMeta = { id: this.newId(), label: 'untitled', sourceName: null, handoff };
 		this.tabs = [...this.tabs, t];
 		if (focus) this.activeId = t.id;
 		this.setPendingOpen(t.id, source);

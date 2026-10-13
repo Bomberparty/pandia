@@ -44,7 +44,7 @@
 	import type { DocPaneActions } from '../logic/doc-actions';
 	import { schemaStore } from '$lib/panels/state/schema-store.svelte';
 	import { autoloadSchema } from '$lib/panels/state/schema-autoload';
-	import { noteCliProblem, takeCliIntent } from '$lib/shell/state/cli-launch';
+	import type { Handoff } from '$lib/shell/state/handoff';
 	import { commandRegistry } from '$lib/palette/state/command-store.svelte';
 	import type { DocStatus } from '$lib/shell/logic/status';
 	import EmptyState from '$lib/shell/components/EmptyState.svelte';
@@ -67,11 +67,12 @@
 				version: number;
 				sourceName: string | null;
 				fileBacked: boolean;
-				saved: boolean;
 				save: (opts?: { silent?: boolean }) => Promise<boolean>;
 			} | null,
 		) => void;
 		paneBus?: PaneCommandBus | null;
+		// Set when a terminal launch opened this tab.
+		handoff?: Handoff | null;
 		isHandleAlive?: (h: DocHandle) => boolean;
 
 		confirmCommentLoss?: (name: string) => Promise<'save' | 'saveAs' | 'cancel'>;
@@ -89,6 +90,7 @@
 		onOpenInNewTab = () => {},
 		onContextChange = () => {},
 		paneBus = null,
+		handoff = null,
 		isHandleAlive = () => true,
 		confirmCommentLoss,
 		confirmSchemaFetch = () => Promise.resolve(false),
@@ -129,7 +131,6 @@
 
 	let gridSchema: ColumnSchema | null = $state(null);
 	let gridLoadingFor: number | null = $state(null);
-	let cliWaiting = $state(false);
 	let gridSelected: { path: Path; kind: NodeKind | null } | null = $state(null);
 
 	const doc = new DocumentSession({
@@ -247,7 +248,6 @@
 				version: session.summary.version,
 				sourceName: session.sourceName,
 				fileBacked: session.summary.fileBacked,
-				saved: session.savedThisSession,
 				save: (opts) => session.save(opts),
 			});
 		} else {
@@ -317,22 +317,25 @@
 	});
 
 	$effect(() => {
+		session.handoff = handoff;
+	});
+
+	$effect(() => {
 		const p = pendingOpen;
 		if (!p) return;
 		void (async () => {
 			const opened = await session.loadFromSource(p);
 			onOpened();
 			const s = session.summary;
-			const cli = takeCliIntent(tabId);
-			if (cli) {
-				cliWaiting = cli.waiting;
-				session.replyTo = cli.reply;
-			}
+			const instructions = handoff?.takeInstructions() ?? null;
 			if (!opened || !session.handle || !s) {
-				if (cli) noteCliProblem(tabId, doc.error ?? "The file didn't open.");
+				handoff?.failed(doc.error ?? "The file didn't open.");
 				return;
 			}
-			if (cli?.compareWith) void compare.start({ kind: 'path', path: cli.compareWith });
+			handoff?.opened();
+			if (instructions?.compareWith) {
+				void compare.start({ kind: 'path', path: instructions.compareWith });
+			}
 			await autoloadSchema(
 				{
 					tabId,
@@ -340,7 +343,7 @@
 					version: s.version,
 					path: s.sourcePath,
 					rootIsObject: s.rootKind === 'object',
-					cliSchema: cli?.schema ?? null,
+					cliSchema: instructions?.schema ?? null,
 				},
 				confirmSchemaFetch,
 			);
@@ -452,12 +455,12 @@
 		</div>
 	{/if}
 
-	{#if cliWaiting && session.handle}
+	{#if handoff?.waiting && session.handle}
 		<div class="banner banner-info">
 			<span class="info-head">a terminal is waiting</span>
 			<span class="info-list"
 				><span class="info-item"
-					>{session.replyTo
+					>{handoff.repliesToTerminal
 						? `Save (${fmtKbd('⌘S')}) to send this back, then close the tab. Closing without saving sends nothing.`
 						: 'Close this tab when you are done.'}</span
 				></span
