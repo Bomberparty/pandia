@@ -18,10 +18,10 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
   <h2>Load a schema automatically</h2>
   <p>Pandia fills the Schema panel for you when a schema is named in one of two places:</p>
   <ul>
-    <li><strong>The command line</strong>, as <code>Pandia config.json --schema ./config.schema.json</code>.
+    <li><strong>The command line</strong>, as <code>pandia config.json --schema ./config.schema.json</code>.
     The schema can be a path or an https:// URL. A relative path is read from the folder you ran
-    the command in. On macOS the command is
-    <code>/Applications/Pandia.app/Contents/MacOS/Pandia</code>.</li>
+    the command in. See <a href="/docs/command-line">Command line</a> to install
+    <code>pandia</code>.</li>
     <li><strong>The document</strong>, as a top-level <code>"$schema": "./config.schema.json"</code>.
     A relative path is read from the document's folder.</li>
   </ul>
@@ -36,10 +36,7 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
   <p>If your schema sets <code>additionalProperties: false</code>, the document's own
   <code>$schema</code> key fails validation. Add <code>"$schema": &lbrace; "type": "string" &rbrace;</code>
   to the schema's <code>properties</code> to allow it. Pandia shows this hint when it happens.</p>
-  <p><code>--schema</code> applies when Pandia starts. If Pandia is already open, put the schema in
-  the document's <code>$schema</code> instead. With <code>open -a Pandia --args</code>, pass an
-  absolute schema path. A schema that uses <code>$ref</code> to point at other files can't load
-  them yet.</p>
+  <p>A schema that uses <code>$ref</code> to point at other files can't load them yet.</p>
 
   <h2>Clickable errors</h2>
   <p>Each error shows the <strong>failing path</strong> and the <strong>reason</strong> it

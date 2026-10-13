@@ -11,13 +11,8 @@ import { schemaStore, type SchemaOrigin } from './schema-store.svelte';
 const HTTP_BLOCKED =
 	'Pandia only loads schemas over HTTPS. To load http:// URLs, turn on “Allow schemas over HTTP” in Settings → Behavior.';
 
-const cliSchemas = new Map<string, string>();
 // Approvals last for the session so restored tabs don't ask again; a refusal asks again next open.
 const approvedUrls = new Set<string>();
-
-export function rememberCliSchema(path: string, ref: string): void {
-	cliSchemas.set(path, ref);
-}
 
 export interface OpenedDoc {
 	tabId: string;
@@ -25,16 +20,15 @@ export interface OpenedDoc {
 	version: number;
 	path: string | null;
 	rootIsObject: boolean;
+	cliSchema: string | null;
 }
 
 export async function autoloadSchema(
 	doc: OpenedDoc,
 	confirmRemote: (host: string) => Promise<boolean>,
 ): Promise<void> {
-	const cliRef = doc.path ? (cliSchemas.get(doc.path) ?? null) : null;
-	if (doc.path) cliSchemas.delete(doc.path);
 	const docRef = doc.rootIsObject ? await readDocSchemaRef(doc.handle) : null;
-	const plan = planSchema({ cliRef, docRef, docPath: doc.path });
+	const plan = planSchema({ cliRef: doc.cliSchema, docRef, docPath: doc.path });
 	if (plan.kind === 'none') return;
 
 	const origin: SchemaOrigin = {

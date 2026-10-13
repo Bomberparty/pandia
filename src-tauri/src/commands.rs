@@ -51,6 +51,7 @@ where
 pub enum OpenSource {
     File { path: String },
     Text { text: String, name: Option<String> },
+    Piped { path: String },
 }
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -64,10 +65,26 @@ fn doc_open_inner(store: &DocStore, source: OpenSource) -> DocResult<OpenResult>
     let doc = match source {
         OpenSource::File { path } => Document::from_file(&path)?,
         OpenSource::Text { text, name } => Document::from_text(&text, name)?,
+        OpenSource::Piped { path } => open_piped(&path)?,
     };
     let summary = doc.summary();
     let handle = store.insert(doc);
     Ok(OpenResult { handle, summary })
+}
+
+// Piped input arrives as a temp file from the `pandia -` launcher. It opens as an unsaved
+// "stdin" document, so Save asks where to keep it instead of writing to the temp file.
+fn open_piped(path: &str) -> DocResult<Document> {
+    if !crate::cli::is_stdin_handoff(path) {
+        return Err(DocError::file(
+            FileOp::Open,
+            std::path::Path::new(path),
+            std::io::ErrorKind::NotFound.into(),
+        ));
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| DocError::file(FileOp::Open, std::path::Path::new(path), e))?;
+    Document::from_text(&text, Some("stdin".into()))
 }
 
 fn doc_close_inner(store: &DocStore, handle: DocHandle) -> bool {
@@ -1027,6 +1044,26 @@ mod tests {
         let json = serde_json::to_value(&result).unwrap();
         assert!(json.get("handle").is_some());
         assert!(json.get("summary").is_some());
+    }
+
+    #[test]
+    fn piped_input_opens_as_an_unsaved_stdin_document() {
+        let dir = std::env::temp_dir().join(format!("pandia-piped-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let handoff = dir.join("pandia-stdin-test.json");
+        std::fs::write(&handoff, r#"[1, 2]"#).unwrap();
+        let path = handoff.to_string_lossy().into_owned();
+
+        let store = DocStore::new();
+        let result = doc_open_inner(&store, OpenSource::Piped { path }).unwrap();
+        assert_eq!(result.summary.source_path.as_deref(), Some("stdin"));
+        assert!(!result.summary.file_backed);
+
+        let other = dir.join("notes.json");
+        std::fs::write(&other, "{}").unwrap();
+        let path = other.to_string_lossy().into_owned();
+        assert!(doc_open_inner(&store, OpenSource::Piped { path }).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

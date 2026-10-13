@@ -5,6 +5,7 @@
 		SCHEMA_DEBOUNCE_MANUAL,
 	} from './state/behavior-prefs.svelte';
 	import { fmtKbd } from '$lib/util/platform';
+	import TerminalCommandField from './TerminalCommandField.svelte';
 
 	$effect(() => {
 		void behaviorPrefs.init();
@@ -187,4 +188,6 @@
 			{/if}
 		</div>
 	</section>
+
+	<TerminalCommandField />
 </div>

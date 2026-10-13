@@ -1,7 +1,12 @@
+mod cli;
 mod commands;
 pub(crate) mod doc;
+mod shell_command;
+
+use cli::PendingFile;
 
 use serde::{Deserialize, Serialize};
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{
@@ -60,6 +65,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::doc_export_to_file,
             refresh_recent_files,
             drain_pending_files,
+            cli_wait_done,
+            cli_discard_piped,
+            shell_command::shell_command_status,
+            shell_command::shell_command_install,
+            shell_command::shell_command_remove,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .disable_serde_phases()
@@ -71,48 +81,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 
 pub(crate) struct AppState {
     pub pending_files: Mutex<Vec<PendingFile>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PendingFile {
-    pub path: String,
-    pub schema: Option<String>,
-}
-
-fn parse_cli_args(
-    args: impl IntoIterator<Item = String>,
-    cwd: &std::path::Path,
-) -> Vec<PendingFile> {
-    let mut files = Vec::new();
-    let mut schema = None;
-    let mut args = args.into_iter();
-    while let Some(arg) = args.next() {
-        if arg == "--schema" {
-            schema = args.next();
-        } else if let Some(value) = arg.strip_prefix("--schema=") {
-            schema = Some(value.to_string());
-        } else if !arg.starts_with('-') && is_supported_file(&arg) {
-            files.push(resolve_cli_reference(&arg, cwd));
-        }
-    }
-    let schema = schema.map(|s| resolve_cli_reference(&s, cwd));
-    files
-        .into_iter()
-        .map(|path| PendingFile {
-            path,
-            schema: schema.clone(),
-        })
-        .collect()
-}
-
-// A relative path on the command line means "relative to where the command ran", which
-// only the launching process knows, so it is made absolute here. URLs pass through.
-fn resolve_cli_reference(reference: &str, cwd: &std::path::Path) -> String {
-    if reference.contains("://") || std::path::Path::new(reference).is_absolute() {
-        return reference.to_string();
-    }
-    cwd.join(reference).to_string_lossy().into_owned()
+    pub handoffs: cli::Handoffs,
 }
 
 const SUPPORTED_EXTENSIONS: &[&str] = &["json", "jsonc", "json5", "geojson", "jsonl", "ndjson"];
@@ -137,29 +106,61 @@ fn emit_file_open(app: &AppHandle, paths: Vec<String>) {
         return;
     }
 
+    queue_files(
+        app,
+        supported_paths.into_iter().map(PendingFile::file).collect(),
+    );
+}
+
+fn queue_files(app: &AppHandle, files: Vec<PendingFile>) {
+    if files.is_empty() {
+        return;
+    }
     if let Some(state) = app.try_state::<AppState>() {
         if let Ok(mut pending) = state.pending_files.lock() {
-            pending.extend(
-                supported_paths
-                    .into_iter()
-                    .map(|path| PendingFile { path, schema: None }),
-            );
+            pending.extend(files);
         }
     }
-
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.emit("file-open", &());
     }
 }
 
+fn focus_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let cli_files = parse_cli_args(
-        std::env::args().skip(1),
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let in_terminal = !cfg!(debug_assertions) && std::io::stderr().is_terminal();
+    if (!args.is_empty() || in_terminal) && std::env::var_os(cli::LAUNCHED_ENV).is_none() {
+        std::process::exit(cli::launch(args));
+    }
+
+    let handoffs = cli::Handoffs::default();
+    let cli_files = cli::pending_from(
+        args,
         &std::env::current_dir().unwrap_or_default(),
+        &handoffs,
     );
 
     tauri::Builder::default()
+        // Must come first: a second launch hands its arguments over here and exits before
+        // the other plugins start.
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let files = cli::pending_from(
+                args.into_iter().skip(1),
+                std::path::Path::new(&cwd),
+                &app.state::<AppState>().handoffs,
+            );
+            queue_files(app, files);
+            focus_main_window(app);
+        }))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -169,6 +170,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(AppState {
             pending_files: Mutex::new(cli_files),
+            handoffs,
         })
         .manage(std::sync::Arc::new(doc::store::DocStore::new()))
         .manage(std::sync::Arc::new(doc::jobs::JobRegistry::default()))
@@ -205,7 +207,9 @@ pub fn run() {
 
                 emit_file_open(app, paths);
             }
-            let _ = (app, event);
+            if let RunEvent::Exit = event {
+                app.state::<AppState>().handoffs.finish_all();
+            }
         });
 }
 
@@ -466,6 +470,18 @@ fn drain_pending_files(state: tauri::State<'_, AppState>) -> Result<Vec<PendingF
 
 #[tauri::command]
 #[specta::specta]
+fn cli_wait_done(state: tauri::State<'_, AppState>, id: String, code: i32) {
+    state.handoffs.release(&id, code);
+}
+
+#[tauri::command]
+#[specta::specta]
+fn cli_discard_piped(state: tauri::State<'_, AppState>, path: String) {
+    state.handoffs.discard_piped(&path);
+}
+
+#[tauri::command]
+#[specta::specta]
 fn refresh_recent_files(app: AppHandle, items: Vec<RecentFile>) -> Result<(), String> {
     let app2 = app.clone();
     app.run_on_main_thread(move || {
@@ -495,52 +511,5 @@ mod bindings_export {
                 "../src/lib/ipc/bindings.ts",
             )
             .expect("failed to export typescript bindings");
-    }
-}
-
-#[cfg(test)]
-mod cli_args {
-    use super::{parse_cli_args, PendingFile};
-    use std::path::Path;
-
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn schema_flag_attaches_to_files_and_is_not_opened_itself() {
-        let cwd = Path::new("/work");
-        let got = parse_cli_args(
-            args(&["config.json", "--schema", "./config.schema.json"]),
-            cwd,
-        );
-        assert_eq!(
-            got,
-            vec![PendingFile {
-                path: "/work/config.json".into(),
-                schema: Some("/work/./config.schema.json".into()),
-            }]
-        );
-    }
-
-    #[test]
-    fn schema_equals_form_urls_and_absolute_paths_pass_through() {
-        let cwd = Path::new("/work");
-        let url = parse_cli_args(args(&["--schema=https://x.dev/s.json", "a.json"]), cwd);
-        assert_eq!(url[0].schema.as_deref(), Some("https://x.dev/s.json"));
-        let abs = parse_cli_args(args(&["a.json", "--schema", "/etc/s.json"]), cwd);
-        assert_eq!(abs[0].schema.as_deref(), Some("/etc/s.json"));
-    }
-
-    #[test]
-    fn files_without_a_schema_flag_and_unknown_flags() {
-        let got = parse_cli_args(args(&["--verbose", "a.json", "notes.txt"]), Path::new("/w"));
-        assert_eq!(
-            got,
-            vec![PendingFile {
-                path: "/w/a.json".into(),
-                schema: None,
-            }]
-        );
     }
 }

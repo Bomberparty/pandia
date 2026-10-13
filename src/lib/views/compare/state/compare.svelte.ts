@@ -31,10 +31,8 @@ export class CompareController {
 	);
 
 	start = async (target: CompareTarget) => {
-		if (target.kind === 'file') {
-			await this.pickFile();
-			return;
-		}
+		if (target.kind === 'file') return this.pickFile();
+		if (target.kind === 'path') return this.openFile(target.path);
 		if (target.handle === this.deps.mainHandle()) return;
 		this.deps.setBusy(true);
 		this.deps.setError(null);
@@ -59,15 +57,18 @@ export class CompareController {
 			directory: false,
 			filters: JSON_OPEN_FILTERS,
 		});
-		if (typeof picked !== 'string') return;
+		if (typeof picked === 'string') await this.openFile(picked);
+	};
+
+	openFile = async (path: string) => {
 		this.deps.setBusy(true);
 		this.deps.setError(null);
 		try {
 			await this.release();
-			const res = await ipc.docOpen({ kind: 'file', path: picked });
+			const res = await ipc.docOpen({ kind: 'file', path });
 			this.handle = res.handle;
 			this.summary = res.summary;
-			this.sourceName = picked;
+			this.sourceName = path;
 			this.borrowed = false;
 			this.deps.setViewMode('compare');
 		} catch (e) {

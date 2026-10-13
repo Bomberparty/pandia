@@ -34,7 +34,7 @@
 	import { sidebarPrefs } from '../state/sidebar-prefs.svelte';
 	import { ipc } from '$lib/ipc/client';
 	import type { BackupRecord, Path, PendingFile } from '$lib/ipc/bindings';
-	import { rememberCliSchema } from '$lib/panels/state/schema-autoload';
+	import { abandonCliLaunch, rememberCliLaunch, releaseCliTab } from '$lib/shell/state/cli-launch';
 	import type { CompareTarget } from '$lib/views/compare/logic/compare-target';
 	import { PaneCommandBus } from '$lib/shell/state/pane-bus';
 	import { ConfirmController } from '$lib/ui/confirm.svelte';
@@ -303,7 +303,10 @@
 						}
 					}
 				} finally {
-					if (shouldClose) await win.destroy();
+					if (shouldClose) {
+						await Promise.all(tabStore.tabs.map((t) => releaseCliTab(t.id)));
+						await win.destroy();
+					}
 				}
 			})
 			.then((u) => {
@@ -453,11 +456,13 @@
 		} catch {
 			return;
 		}
-		for (const { path, schema } of pending) {
-			if (!(await maybeConfirmLargeFile(path))) continue;
-			if (schema) rememberCliSchema(path, schema);
-			const ok = tabStore.openInTab({ kind: 'file', path });
-			if (!ok) break;
+		for (const file of pending) {
+			const { path, piped } = file;
+			const tabId = (await maybeConfirmLargeFile(path))
+				? tabStore.openInTab(piped ? { kind: 'piped', path } : { kind: 'file', path })
+				: null;
+			if (tabId) rememberCliLaunch(tabId, file);
+			else void abandonCliLaunch(file);
 		}
 	}
 

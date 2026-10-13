@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetch } from '@tauri-apps/plugin-http';
 import { ipc } from '$lib/ipc/client';
 import { behaviorPrefs } from '$lib/settings/state/behavior-prefs.svelte';
-import { autoloadSchema, rememberCliSchema } from './schema-autoload';
+import { autoloadSchema } from './schema-autoload';
 import { schemaStore } from './schema-store.svelte';
 
 vi.mock('$lib/ipc/client', () => ({
@@ -16,8 +16,8 @@ vi.mock('$lib/settings/state/behavior-prefs.svelte', () => ({
 
 const VALID = { valid: true, errors: [], errorCount: 0, truncated: false };
 
-function doc(tabId: string, path: string) {
-	return { tabId, handle: 'h' as never, version: 1, path, rootIsObject: true };
+function doc(tabId: string, path: string, cliSchema: string | null = null) {
+	return { tabId, handle: 'h' as never, version: 1, path, rootIsObject: true, cliSchema };
 }
 
 function docSchema(ref: string | null) {
@@ -69,10 +69,9 @@ describe('autoloadSchema', () => {
 
 	it('uses --schema without asking and notes the document reference it replaced', async () => {
 		docSchema('./other.json');
-		rememberCliSchema('/w/c.json', '/w/cli.schema.json');
 		vi.mocked(ipc.readSchemaFile).mockResolvedValue('{}');
 		const confirm = vi.fn(async () => true);
-		await autoloadSchema(doc('t5', '/w/c.json'), confirm);
+		await autoloadSchema(doc('t5', '/w/c.json', '/w/cli.schema.json'), confirm);
 		expect(confirm).not.toHaveBeenCalled();
 		expect(ipc.readSchemaFile).toHaveBeenCalledWith('/w/cli.schema.json');
 		expect(schemaStore.get('t5').origin).toEqual({

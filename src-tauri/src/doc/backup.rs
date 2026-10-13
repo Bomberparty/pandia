@@ -21,9 +21,38 @@ fn backup_dir(app: &AppHandle) -> std::io::Result<PathBuf> {
         .path()
         .app_data_dir()
         .map_err(|e| std::io::Error::other(e.to_string()))?;
-    let dir = base.join("backups");
+    private_dir(base.join("backups"))
+}
+
+// Backups hold unsaved document text, which can be a secret. Where the home folder is open to
+// other users (older Ubuntu and Debian), default permissions would let them read it. Folders
+// and files from earlier versions are tightened on the next write.
+fn private_dir(dir: PathBuf) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    }
     Ok(dir)
+}
+
+fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(text.as_bytes())
 }
 
 fn sanitize_doc_id(doc_id: &str) -> String {
@@ -56,7 +85,7 @@ pub fn write(
         content,
     };
     let json = serde_json::to_string(&rec).map_err(|e| std::io::Error::other(e.to_string()))?;
-    std::fs::write(backup_path(app, doc_id)?, json)
+    write_private(&backup_path(app, doc_id)?, &json)
 }
 
 pub fn clear(app: &AppHandle, doc_id: &str) -> std::io::Result<()> {
@@ -120,6 +149,30 @@ fn dedupe_newest_first(mut records: Vec<BackupRecord>) -> (Vec<BackupRecord>, Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn backups_are_readable_by_their_owner_only_even_from_older_versions() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let root = std::env::temp_dir().join(format!("pandia-backup-perm-{}", std::process::id()));
+        let dir = root.join("backups");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let old = dir.join("old.json");
+        std::fs::write(&old, "{}").unwrap();
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let dir = private_dir(dir).unwrap();
+        write_private(&old, "{}").unwrap();
+        let new = dir.join("new.json");
+        write_private(&new, "{}").unwrap();
+
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&old), 0o600);
+        assert_eq!(mode(&new), 0o600);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     fn rec(doc_id: &str, path: Option<&str>, name: Option<&str>, updated_at: &str) -> BackupRecord {
         BackupRecord {

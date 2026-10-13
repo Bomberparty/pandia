@@ -1,5 +1,6 @@
 import { untrack } from 'svelte';
 import { schemaStore } from '$lib/panels/state/schema-store.svelte';
+import { releaseCliTab } from './cli-launch';
 import { statusEq, type DocStatus } from '$lib/shell/logic/status';
 import type { DocHandle, OpenSource } from '$lib/ipc/bindings';
 
@@ -71,6 +72,7 @@ export class TabStore {
 	close = (id: string) => {
 		const idx = this.tabs.findIndex((t) => t.id === id);
 		if (idx < 0) return;
+		void releaseCliTab(id);
 		schemaStore.clear(id);
 		this.statuses = omit(this.statuses, id);
 		this.contexts = omit(this.contexts, id);
@@ -164,20 +166,20 @@ export class TabStore {
 
 	isEmpty = (id: string): boolean => (this.statuses[id] ?? null) == null;
 
-	openInTab = (source: OpenSource, opts: { focus?: boolean } = {}): boolean => {
+	openInTab = (source: OpenSource, opts: { focus?: boolean } = {}): string | null => {
 		const focus = opts.focus ?? true;
 		if (focus && this.isEmpty(this.activeId)) {
 			this.setPendingOpen(this.activeId, source);
-			return true;
+			return this.activeId;
 		}
 		if (this.tabs.length >= MAX_TABS) {
 			this.warnCap();
-			return false;
+			return null;
 		}
 		const t: TabMeta = { id: this.newId(), label: 'untitled', sourceName: null };
 		this.tabs = [...this.tabs, t];
 		if (focus) this.activeId = t.id;
 		this.setPendingOpen(t.id, source);
-		return true;
+		return t.id;
 	};
 }

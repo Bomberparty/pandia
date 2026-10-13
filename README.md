@@ -83,6 +83,10 @@ One click, **ten targets**:
 
 Inline JSON Schema validation against **draft-07** and **2020-12**. Debounce is user-tunable: immediate, 250 ms, 500 ms, 1 s, 2 s, or manual. Load a schema automatically with `--schema <path|https-url>` or a document's top-level `$schema`; remote schemas from a document ask before downloading.
 
+### Work from the terminal
+
+Install the `pandia` command from **Settings → Behavior** (Homebrew adds it for you). `pandia data.json` opens a tab in the running window, `curl … | pandia -` opens piped input, `pandia --diff a.json b.json` opens Compare, and `--wait` makes it usable as `git difftool` or in scripts, exiting 1 when the schema fails.
+
 ### Privacy-first by design
 
 100% local. No telemetry. No cloud sync. No account. Preferences and per-document state live in plain-store files in your OS app-data directory; nothing leaves the machine.

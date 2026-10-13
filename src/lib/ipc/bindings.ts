@@ -54,6 +54,11 @@ export const commands = {
 	docExportToFile: (handle: DocHandle, format: ExportFormat, path: string) => __TAURI_INVOKE<null>("doc_export_to_file", { handle, format, path }),
 	refreshRecentFiles: (items: RecentFile[]) => __TAURI_INVOKE<null>("refresh_recent_files", { items }),
 	drainPendingFiles: () => __TAURI_INVOKE<PendingFile[]>("drain_pending_files"),
+	cliWaitDone: (id: string, code: number) => __TAURI_INVOKE<void>("cli_wait_done", { id, code }),
+	cliDiscardPiped: (path: string) => __TAURI_INVOKE<void>("cli_discard_piped", { path }),
+	shellCommandStatus: () => __TAURI_INVOKE<ShellCommand>("shell_command_status"),
+	shellCommandInstall: () => __TAURI_INVOKE<ShellCommand>("shell_command_install"),
+	shellCommandRemove: () => __TAURI_INVOKE<ShellCommand>("shell_command_remove"),
 };
 
 /* Constants */
@@ -234,7 +239,7 @@ export type OpenResult = {
 	summary: Summary,
 };
 
-export type OpenSource = { kind: "file"; path: string } | { kind: "text"; text: string; name: string | null };
+export type OpenSource = { kind: "file"; path: string } | { kind: "text"; text: string; name: string | null } | { kind: "piped"; path: string };
 
 export type Path = PathSegment[];
 
@@ -242,7 +247,10 @@ export type PathSegment = string | number;
 
 export type PendingFile = {
 	path: string,
+	piped: boolean,
 	schema: string | null,
+	compareWith: string | null,
+	wait: string | null,
 };
 
 export type RecentFile = {
@@ -300,6 +308,12 @@ export type SearchOptions = {
 	query: string,
 	caseSensitive?: boolean,
 	maxResults?: number | null,
+};
+
+export type ShellCommand = {
+	installed: boolean,
+	location: string,
+	removable: boolean,
 };
 
 export type Summary = {

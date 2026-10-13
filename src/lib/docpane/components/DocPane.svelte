@@ -44,6 +44,7 @@
 	import type { DocPaneActions } from '../logic/doc-actions';
 	import { schemaStore } from '$lib/panels/state/schema-store.svelte';
 	import { autoloadSchema } from '$lib/panels/state/schema-autoload';
+	import { takeCliIntent } from '$lib/shell/state/cli-launch';
 	import { commandRegistry } from '$lib/palette/state/command-store.svelte';
 	import type { DocStatus } from '$lib/shell/logic/status';
 	import EmptyState from '$lib/shell/components/EmptyState.svelte';
@@ -323,7 +324,9 @@
 			const opened = await session.loadFromSource(p);
 			onOpened();
 			const s = session.summary;
+			const cli = takeCliIntent(tabId);
 			if (!opened || !session.handle || !s) return;
+			if (cli?.compareWith) void compare.start({ kind: 'path', path: cli.compareWith });
 			await autoloadSchema(
 				{
 					tabId,
@@ -331,6 +334,7 @@
 					version: s.version,
 					path: s.sourcePath,
 					rootIsObject: s.rootKind === 'object',
+					cliSchema: cli?.schema ?? null,
 				},
 				confirmSchemaFetch,
 			);

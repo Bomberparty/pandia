@@ -92,7 +92,12 @@ export class DocSessionController {
 			if (!proceed) return false;
 		}
 		await this.deps.applyDefaultView(null);
-		const name = source.kind === 'file' ? source.path : (source.name ?? '(inline)');
+		const name =
+			source.kind === 'file'
+				? source.path
+				: source.kind === 'piped'
+					? 'stdin'
+					: (source.name ?? '(inline)');
 		await this.load(() => ipc.docOpen(source), name);
 		if (this.deps.getError() !== null) {
 			await runFormatDetect(source, {

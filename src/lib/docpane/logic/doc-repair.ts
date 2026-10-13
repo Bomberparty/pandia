@@ -60,7 +60,7 @@ export interface FormatDetectDeps {
 }
 
 export async function runFormatDetect(source: OpenSource, deps: FormatDetectDeps): Promise<void> {
-	if (source.kind !== 'file') return;
+	if (source.kind === 'text') return;
 	const err = deps.error();
 	if (err == null || !isRepairableError(err, deps.errorKind())) return;
 
@@ -83,7 +83,8 @@ export async function runFormatDetect(source: OpenSource, deps: FormatDetectDeps
 		return;
 	}
 	if (detected.error != null || detected.kind === 'json' || detected.kind === 'unknown') return;
-	await deps.reopen(detected.json, `${stem(source.path)}.json`);
+	const name = source.kind === 'piped' ? 'stdin' : stem(source.path);
+	await deps.reopen(detected.json, `${name}.json`);
 }
 
 export async function runAutoRepair(
