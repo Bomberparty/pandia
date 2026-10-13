@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { DocHandle, Path } from '$lib/ipc/bindings';
+	import type { DocContext } from '$lib/shell/state/workspace.svelte';
+	import type { Path } from '$lib/ipc/bindings';
 	import { schemaStore } from './state/schema-store.svelte';
 	import { hasSchemaKeywords } from './schema-keywords';
 	import { parseJsonPointer } from '$lib/util/path';
@@ -9,15 +10,9 @@
 		SCHEMA_DEBOUNCE_MANUAL,
 	} from '$lib/settings/state/behavior-prefs.svelte';
 
-	interface Context {
-		handle: DocHandle;
-		version: number;
-		sourceName: string | null;
-	}
-
 	interface Props {
 		tabId: string;
-		context: Context | null;
+		context: DocContext | null;
 
 		onJump?: (path: Path) => void;
 	}

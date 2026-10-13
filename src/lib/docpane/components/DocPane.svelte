@@ -4,14 +4,7 @@
 	import { ipc } from '$lib/ipc/client';
 	import { decodeLossless } from '$lib/ipc/wire';
 	import { describeError } from '$lib/ipc/error-copy';
-	import type {
-		ColumnSchema,
-		DocHandle,
-		NodeKind,
-		OpenSource,
-		Path,
-		TypegenLang,
-	} from '$lib/ipc/bindings';
+	import type { ColumnSchema, NodeKind, OpenSource, Path, TypegenLang } from '$lib/ipc/bindings';
 	import { rootRow, type MenuAction } from '$lib/views/tree/logic/model';
 	import { chipText } from '$lib/views/tree/logic/row-format';
 	import TreeView from '$lib/views/tree/components/TreeView.svelte';
@@ -44,7 +37,7 @@
 	import type { DocPaneActions } from '../logic/doc-actions';
 	import { schemaStore } from '$lib/panels/state/schema-store.svelte';
 	import { autoloadSchema } from '$lib/panels/state/schema-autoload';
-	import type { Handoff } from '$lib/shell/state/handoff';
+	import type { DocContext, TabSlot } from '$lib/shell/state/workspace.svelte';
 	import { commandRegistry } from '$lib/palette/state/command-store.svelte';
 	import type { DocStatus } from '$lib/shell/logic/status';
 	import EmptyState from '$lib/shell/components/EmptyState.svelte';
@@ -53,27 +46,15 @@
 
 	interface Props {
 		tabId: string;
+		// The pane's way into its tab: registers what it shows, gives its hand-off.
+		slot: TabSlot;
 		isActive: boolean;
-		onLabelChange: (label: string, sourceName: string | null) => void;
-		onStatusChange: (status: DocStatus | null) => void;
 		pendingOpen?: OpenSource | null;
 		onOpened?: () => void;
 
 		onOpenInNewTab?: (source: OpenSource, opts?: { focus?: boolean }) => void;
 
-		onContextChange?: (
-			ctx: {
-				handle: DocHandle;
-				version: number;
-				sourceName: string | null;
-				fileBacked: boolean;
-				save: (opts?: { silent?: boolean }) => Promise<boolean>;
-			} | null,
-		) => void;
 		paneBus?: PaneCommandBus | null;
-		// Set when a terminal launch opened this tab.
-		handoff?: Handoff | null;
-		isHandleAlive?: (h: DocHandle) => boolean;
 
 		confirmCommentLoss?: (name: string) => Promise<'save' | 'saveAs' | 'cancel'>;
 
@@ -82,16 +63,12 @@
 
 	let {
 		tabId,
+		slot,
 		isActive,
-		onLabelChange,
-		onStatusChange,
 		pendingOpen = null,
 		onOpened = () => {},
 		onOpenInNewTab = () => {},
-		onContextChange = () => {},
 		paneBus = null,
-		handoff = null,
-		isHandleAlive = () => true,
 		confirmCommentLoss,
 		confirmSchemaFetch = () => Promise.resolve(false),
 	}: Props = $props();
@@ -136,7 +113,7 @@
 	const doc = new DocumentSession({
 		isActive: () => isActive,
 		onOpenInNewTab: (source) => onOpenInNewTab(source),
-		isHandleAlive: (h) => isHandleAlive(h),
+		isHandleAlive: (h) => slot.isHandleAlive(h),
 		confirmCommentLoss: (n) =>
 			confirmCommentLoss ? confirmCommentLoss(n) : Promise.resolve('save' as const),
 		code: { api: () => codeApi, dirty: () => codeDirty },
@@ -237,23 +214,22 @@
 		};
 	});
 
-	$effect(() => {
-		onLabelChange(tabLabelFor(session.sourceName), session.sourceName);
-	});
-
-	$effect(() => {
-		if (session.handle && session.summary) {
-			onContextChange({
-				handle: session.handle,
-				version: session.summary.version,
-				sourceName: session.sourceName,
-				fileBacked: session.summary.fileBacked,
-				save: (opts) => session.save(opts),
-			});
-		} else {
-			onContextChange(null);
-		}
-	});
+	// Built from single values, so a refreshed summary with the same version keeps the same
+	// context and the panels reading it don't reload.
+	const contextHandle = $derived(session.handle);
+	const contextVersion = $derived(session.summary?.version ?? null);
+	const contextFileBacked = $derived(session.summary?.fileBacked ?? false);
+	const context = $derived.by<DocContext | null>(() =>
+		contextHandle && contextVersion !== null
+			? {
+					handle: contextHandle,
+					version: contextVersion,
+					sourceName: session.sourceName,
+					fileBacked: contextFileBacked,
+					save: (opts) => session.save(opts),
+				}
+			: null,
+	);
 
 	const status = $derived.by<DocStatus | null>(() => {
 		const s = session.summary;
@@ -279,9 +255,22 @@
 		};
 	});
 
-	$effect(() => {
-		onStatusChange(status);
-	});
+	$effect(() =>
+		slot.register({
+			get label() {
+				return tabLabelFor(session.sourceName);
+			},
+			get sourceName() {
+				return session.sourceName;
+			},
+			get status() {
+				return status;
+			},
+			get context() {
+				return context;
+			},
+		}),
+	);
 
 	$effect(() => {
 		if (!isActive) return;
@@ -317,7 +306,7 @@
 	});
 
 	$effect(() => {
-		session.handoff = handoff;
+		session.handoff = slot.handoff;
 	});
 
 	$effect(() => {
@@ -327,6 +316,7 @@
 			const opened = await session.loadFromSource(p);
 			onOpened();
 			const s = session.summary;
+			const handoff = slot.handoff;
 			const instructions = handoff?.takeInstructions() ?? null;
 			if (!opened || !session.handle || !s) {
 				handoff?.failed(doc.error ?? "The file didn't open.");
@@ -455,12 +445,12 @@
 		</div>
 	{/if}
 
-	{#if handoff?.waiting && session.handle}
+	{#if slot.handoff?.waiting && session.handle}
 		<div class="banner banner-info">
 			<span class="info-head">a terminal is waiting</span>
 			<span class="info-list"
 				><span class="info-item"
-					>{handoff.repliesToTerminal
+					>{slot.handoff?.repliesToTerminal
 						? `Save (${fmtKbd('⌘S')}) to send this back, then close the tab. Closing without saving sends nothing.`
 						: 'Close this tab when you are done.'}</span
 				></span

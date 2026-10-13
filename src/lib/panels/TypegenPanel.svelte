@@ -1,21 +1,16 @@
 <script lang="ts">
+	import type { DocContext } from '$lib/shell/state/workspace.svelte';
 	import { ipc } from '$lib/ipc/client';
 	import { describeError } from '$lib/ipc/error-copy';
-	import type { DocHandle, TypegenLang } from '$lib/ipc/bindings';
+	import type { TypegenLang } from '$lib/ipc/bindings';
 	import { typegenPrefs, TYPEGEN_LANGS } from './state/typegen-prefs.svelte';
 	import { stem } from '$lib/util/path';
 	import { CopyFlag } from '$lib/util/clipboard.svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { Check, Copy } from '@lucide/svelte';
 
-	interface Context {
-		handle: DocHandle;
-		version: number;
-		sourceName: string | null;
-	}
-
 	interface Props {
-		context: Context | null;
+		context: DocContext | null;
 	}
 
 	let { context }: Props = $props();

@@ -12,7 +12,7 @@ export interface ShellCommandDeps {
 	nextTab: () => void;
 	prevTab: () => void;
 	openFile: () => Promise<void> | void;
-	openInTab: (source: OpenSource) => string | null;
+	openInTab: (source: OpenSource) => void;
 	toggleSidebar: () => void;
 	revealSchemaPanel: () => void;
 	toggleComparePicker: () => void;

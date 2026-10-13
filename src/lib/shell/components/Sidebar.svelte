@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { DocContext } from '$lib/shell/state/workspace.svelte';
 	import {
 		sidebarPrefs,
 		MIN_WIDTH,
@@ -9,16 +10,8 @@
 	import TypegenPanel from '$lib/panels/TypegenPanel.svelte';
 	import OutlinePanel from '$lib/panels/OutlinePanel.svelte';
 	import HistoryPanel from '$lib/panels/HistoryPanel.svelte';
-	import type { DocHandle, Path } from '$lib/ipc/bindings';
+	import type { Path } from '$lib/ipc/bindings';
 	import { resizable } from '$lib/ui/resizable';
-
-	interface DocContext {
-		handle: DocHandle;
-		version: number;
-		sourceName: string | null;
-		fileBacked: boolean;
-		save: (opts?: { silent?: boolean }) => Promise<boolean>;
-	}
 
 	interface Props {
 		activeTabId: string;
@@ -43,8 +36,8 @@
 
 	const TAB_HINTS: Record<SidebarTabId, string> = {
 		outline: 'document outline — collapsible path tree.',
-		schema: '', // Replaced by SchemaPanel — kept here so the type stays exhaustive.
-		types: '', // Replaced by TypegenPanel — kept here so the type stays exhaustive.
+		schema: '',
+		types: '',
 		history: 'op-log timeline — every apply/undo/redo step, navigable.',
 	};
 

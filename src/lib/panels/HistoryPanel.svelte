@@ -1,16 +1,11 @@
 <script lang="ts">
+	import type { DocContext } from '$lib/shell/state/workspace.svelte';
 	import { ipc } from '$lib/ipc/client';
 	import { describeError } from '$lib/ipc/error-copy';
-	import type { DocHandle, HistoryView } from '$lib/ipc/bindings';
-
-	interface Context {
-		handle: DocHandle;
-		version: number;
-		sourceName: string | null;
-	}
+	import type { HistoryView } from '$lib/ipc/bindings';
 
 	interface Props {
-		context: Context | null;
+		context: DocContext | null;
 
 		onStep?: (delta: number) => void;
 	}

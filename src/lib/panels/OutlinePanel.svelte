@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { DocContext } from '$lib/shell/state/workspace.svelte';
 	import { ipc } from '$lib/ipc/client';
 	import { describeError } from '$lib/ipc/error-copy';
 	import type { DocHandle, NodeView, Path } from '$lib/ipc/bindings';
@@ -7,14 +8,8 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import { ChevronDown, ChevronRight } from '@lucide/svelte';
 
-	interface Context {
-		handle: DocHandle;
-		version: number;
-		sourceName: string | null;
-	}
-
 	interface Props {
-		context: Context | null;
+		context: DocContext | null;
 
 		onNavigate?: (path: Path) => void;
 	}
