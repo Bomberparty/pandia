@@ -51,7 +51,6 @@ export const commands = {
 	refreshRecentFiles: (items: RecentFile[]) => __TAURI_INVOKE<null>("refresh_recent_files", { items }),
 	drainPendingFiles: () => __TAURI_INVOKE<PendingFile[]>("drain_pending_files"),
 	cliWaitDone: (id: string, report: TabReport) => __TAURI_INVOKE<void>("cli_wait_done", { id, report }),
-	/**  Sends a piped document back to the terminal waiting on it. */
 	cliReply: (handle: DocHandle, path: string) => __TAURI_INVOKE<null>("cli_reply", { handle, path }),
 	cliDiscardPiped: (path: string) => __TAURI_INVOKE<void>("cli_discard_piped", { path }),
 	shellCommandStatus: () => __TAURI_INVOKE<ShellCommand>("shell_command_status"),
@@ -65,6 +64,8 @@ export const EDIT_SIZE_LIMIT = 209715200 as const;
 export const LINE_FETCH_MAX = 5000 as const;
 
 export const MAX_DOC_BYTES = 2147483648 as const;
+
+export const SHORTCUTS = [{"command":"tab.new","key":"T","shift":false},{"command":"doc.new","key":"N","shift":false},{"command":"doc.openFile","key":"O","shift":false},{"command":"doc.save","key":"S","shift":false},{"command":"doc.saveAs","key":"S","shift":true},{"command":"doc.export","key":"E","shift":false},{"command":"tab.next","key":"]","shift":true},{"command":"tab.prev","key":"[","shift":true},{"command":"tab.close","key":"W","shift":false},{"command":"doc.undo","key":"Z","shift":false},{"command":"doc.redo","key":"Z","shift":true},{"command":"find.open","key":"F","shift":false},{"command":"find.next","key":"G","shift":false},{"command":"find.prev","key":"G","shift":true},{"command":"find.replace","key":"H","shift":false},{"command":"palette.toggle","key":"K","shift":false},{"command":"view.toggleSidebar","key":"B","shift":false},{"command":"view.tree","key":"1","shift":false},{"command":"view.code","key":"2","shift":false},{"command":"view.grid","key":"3","shift":false},{"command":"view.graph","key":"4","shift":false},{"command":"nav.settings","key":",","shift":false},{"command":"view.openSchemaPanel","key":"V","shift":true},{"command":"compare.pick","key":"D","shift":false},{"command":"help.shortcuts","key":"/","shift":false}] as const;
 
 /* Types */
 export type ApplyResult = {
@@ -232,21 +233,15 @@ export type OpenFailure = {
 	diagnosis: Diagnosis,
 };
 
-/**  What Pandia changed so the source could be read. Recovery notes live on the summary. */
 export type OpenNotes = {
 	convertedFrom: DetectKind | null,
 	repairs: string[],
 };
 
 export type OpenOptions = {
-	/**  Repair broken JSON instead of failing; the auto-repair setting. */
 	repair: boolean,
 };
 
-/**
- *  The single result of trying to open a source. Problems the person can fix are a
- *  failed outcome; file-system errors stay errors.
- */
 export type OpenOutcome = {
 	kind: "opened",
 } & OpenedDoc | {

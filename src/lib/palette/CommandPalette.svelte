@@ -7,6 +7,7 @@
 	} from './state/command-store.svelte';
 	import { fuzzyMatch, highlightLabel } from './match';
 	import { fmtKbd } from '$lib/util/platform';
+	import { shortcutKeys } from '$lib/shell/logic/shortcuts';
 
 	interface Props {
 		open: boolean;
@@ -36,7 +37,7 @@
 	}
 
 	const results = $derived.by<Entry[]>(() => {
-		const cmds = commandRegistry.list.filter((c) => !c.enabled || c.enabled());
+		const cmds = commandRegistry.list.filter((c) => !c.hidden && (!c.enabled || c.enabled()));
 		const trimmed = query.trim();
 
 		if (!trimmed) {
@@ -159,6 +160,7 @@
 				{:else}
 					{#each results as r, i (r.cmd.id)}
 						{@const section = showSectionFor(i)}
+						{@const keys = shortcutKeys(r.cmd.id)}
 						{#if section}
 							<li class="section">{section === 'Recent' ? 'Recently used' : section}</li>
 						{/if}
@@ -183,8 +185,8 @@
 							{#if query.trim() || r.section === 'Recent'}
 								<span class="cat">{r.cmd.category}</span>
 							{/if}
-							{#if r.cmd.keybinding}
-								<span class="kbd">{fmtKbd(r.cmd.keybinding)}</span>
+							{#if keys}
+								<span class="kbd">{fmtKbd(keys)}</span>
 							{/if}
 						</li>
 					{/each}

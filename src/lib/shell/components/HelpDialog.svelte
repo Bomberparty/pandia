@@ -4,6 +4,7 @@
 	import { X } from '@lucide/svelte';
 	import { commandRegistry, type CommandCategory } from '$lib/palette/state/command-store.svelte';
 	import { fmtKbd } from '$lib/util/platform';
+	import { shortcutKeys } from '$lib/shell/logic/shortcuts';
 
 	interface Props {
 		onClose: () => void;
@@ -55,9 +56,10 @@
 	const commandGroups = $derived.by<Group[]>(() => {
 		const byCategory = new Map<CommandCategory, Shortcut[]>();
 		for (const c of commandRegistry.list) {
-			if (!c.keybinding) continue;
+			const keys = shortcutKeys(c.id);
+			if (!keys) continue;
 			const items = byCategory.get(c.category) ?? [];
-			items.push({ keys: splitKeys(c.keybinding), label: c.label });
+			items.push({ keys: splitKeys(keys), label: c.label });
 			byCategory.set(c.category, items);
 		}
 		return CATEGORY_ORDER.flatMap((cat) => {
@@ -66,10 +68,6 @@
 		});
 	});
 
-	const GENERAL: Group = {
-		title: 'General',
-		items: [{ keys: ['⌘', 'K'], label: 'Command palette' }],
-	};
 	const IN_THE_TREE: Group = {
 		title: 'In the tree',
 		items: [
@@ -80,7 +78,7 @@
 		],
 	};
 
-	const groups = $derived([GENERAL, ...commandGroups, IN_THE_TREE]);
+	const groups = $derived([...commandGroups, IN_THE_TREE]);
 </script>
 
 <Dialog {onClose}>

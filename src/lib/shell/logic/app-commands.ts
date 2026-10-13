@@ -1,6 +1,6 @@
 import type { Command } from '$lib/palette/state/command-store.svelte';
 import type { OpenSource } from '$lib/ipc/bindings';
-import type { SettingsTab } from '$lib/settings/tabs';
+import { SETTINGS_TABS, type SettingsTab } from '$lib/settings/tabs';
 import { buildDemoSource } from './demo';
 
 export interface ShellCommandDeps {
@@ -32,19 +32,17 @@ export interface ShellCommandDeps {
 
 export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 	return [
-		{ id: 'tab.new', label: 'New Tab', category: 'Tab', keybinding: '⌘T', run: deps.newTab },
+		{ id: 'tab.new', label: 'New Tab', category: 'Tab', run: deps.newTab },
 		{
 			id: 'tab.close',
 			label: 'Close Tab',
 			category: 'Tab',
-			keybinding: '⌘W',
 			run: () => deps.requestCloseTab(deps.activeTabId()),
 		},
 		{
 			id: 'tab.next',
 			label: 'Next Tab',
 			category: 'Tab',
-			keybinding: '⌘⇧]',
 			enabled: () => deps.tabsLength() > 1,
 			run: deps.nextTab,
 		},
@@ -52,15 +50,14 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 			id: 'tab.prev',
 			label: 'Previous Tab',
 			category: 'Tab',
-			keybinding: '⌘⇧[',
 			enabled: () => deps.tabsLength() > 1,
 			run: deps.prevTab,
 		},
+		{ id: 'doc.new', label: 'New File', category: 'Document', run: deps.newTab },
 		{
 			id: 'doc.openFile',
 			label: 'Open File…',
 			category: 'Document',
-			keybinding: '⌘O',
 			run: () => void deps.openFile(),
 		},
 		{
@@ -72,10 +69,22 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 			},
 		},
 		{
+			id: 'doc.clearRecents',
+			label: 'Clear Recent Files',
+			category: 'Document',
+			run: deps.clearRecents,
+		},
+		{
+			id: 'palette.toggle',
+			label: 'Command Palette',
+			category: 'View',
+			hidden: true,
+			run: deps.togglePalette,
+		},
+		{
 			id: 'view.toggleSidebar',
 			label: 'Toggle Sidebar',
 			category: 'View',
-			keybinding: '⌘B',
 			run: deps.toggleSidebar,
 		},
 		{
@@ -88,7 +97,6 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 			id: 'compare.pick',
 			label: 'Diff Against Tab or File…',
 			category: 'Compare',
-			keybinding: '⌘D',
 			enabled: () => deps.hasActiveContext(),
 			run: deps.toggleComparePicker,
 		},
@@ -96,9 +104,17 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 			id: 'nav.settings',
 			label: 'Open Settings',
 			category: 'Navigate',
-			keybinding: '⌘,',
 			run: () => deps.openSettings(),
 		},
+
+		...SETTINGS_TABS.slice(1).map(
+			(tab): Command => ({
+				id: `nav.settings.${tab.id}`,
+				label: `Open Settings: ${tab.label}`,
+				category: 'Navigate',
+				run: () => deps.openSettings(tab.id),
+			}),
+		),
 		...(deps.isDev
 			? ([
 					{
@@ -115,7 +131,6 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 			id: 'help.shortcuts',
 			label: 'Keyboard Shortcuts',
 			category: 'Help',
-			keybinding: '⌘/',
 			run: deps.openHelp,
 		},
 		{
@@ -142,33 +157,17 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 			category: 'Help',
 			run: deps.openFeedback,
 		},
+		{
+			id: 'app.about',
+			label: 'About Pandia',
+			category: 'Help',
+			run: () => void deps.showAbout(),
+		},
+		{
+			id: 'app.checkForUpdates',
+			label: 'Check for Updates…',
+			category: 'Help',
+			run: () => void deps.checkForUpdates(),
+		},
 	];
-}
-
-export function buildMenuRouteMap(deps: ShellCommandDeps): Record<string, () => void> {
-	return {
-		new_tab: deps.newTab,
-		new_file: deps.newTab,
-		close_tab: () => deps.requestCloseTab(deps.activeTabId()),
-		next_tab: deps.nextTab,
-		prev_tab: deps.prevTab,
-		command_palette: deps.togglePalette,
-		toggle_sidebar: deps.toggleSidebar,
-		compare_files: deps.toggleComparePicker,
-		open_file: () => void deps.openFile(),
-		validate_json: deps.revealSchemaPanel,
-		clear_recent_files: deps.clearRecents,
-		keyboard_shortcuts: deps.openHelp,
-		view_website: deps.openWebsite,
-		join_discussions: deps.openDiscussions,
-		report_issue: deps.reportIssue,
-		send_feedback: deps.openFeedback,
-		settings_appearance: () => deps.openSettings('appearance'),
-		settings_behavior: () => deps.openSettings('behavior'),
-		settings_layout: () => deps.openSettings('layout'),
-		settings_data: () => deps.openSettings('data'),
-		settings_about: () => deps.openSettings('about'),
-		about: () => void deps.showAbout(),
-		check_for_updates: () => void deps.checkForUpdates(),
-	};
 }

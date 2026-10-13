@@ -2,7 +2,7 @@
 	import type { Path, PathSegment } from '$lib/ipc/bindings';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { ChevronRight, FoldVertical, Search, UnfoldVertical } from '@lucide/svelte';
-	import { fmtKbd } from '$lib/util/platform';
+	import { shortcutLabel } from '$lib/shell/logic/shortcuts';
 
 	interface Props {
 		path: Path | null;
@@ -67,7 +67,7 @@
 			class="icon"
 			onclick={onSearch}
 			disabled={!onSearch}
-			title={onSearch ? `Search (${fmtKbd('⌘F')})` : 'Search unavailable'}
+			title={onSearch ? `Search (${shortcutLabel('find.open')})` : 'Search unavailable'}
 			><Icon icon={Search} size="xs" /> Search</button
 		>
 	</div>

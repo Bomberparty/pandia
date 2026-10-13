@@ -2,7 +2,7 @@
 	import type { DocStatus } from '$lib/shell/logic/status';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { X, Plus } from '@lucide/svelte';
-	import { fmtKbd } from '$lib/util/platform';
+	import { shortcutLabel } from '$lib/shell/logic/shortcuts';
 
 	interface Tab {
 		id: string;
@@ -123,7 +123,7 @@
 						e.stopPropagation();
 						onClose(tab.id);
 					}}
-					title={`Close tab (${fmtKbd('⌘W')})`}
+					title={`Close tab (${shortcutLabel('tab.close')})`}
 					aria-label="Close tab"><Icon icon={X} size="xs" /></button
 				>
 			</div>
@@ -131,7 +131,9 @@
 		<button
 			class="tab-new"
 			onclick={onNew}
-			title={tabs.length >= maxTabs ? `Max ${maxTabs} tabs` : `New tab (${fmtKbd('⌘T')})`}
+			title={tabs.length >= maxTabs
+				? `Max ${maxTabs} tabs`
+				: `New tab (${shortcutLabel('tab.new')})`}
 			disabled={tabs.length >= maxTabs}
 			aria-label="New tab"><Icon icon={Plus} size="sm" /></button
 		>
@@ -151,7 +153,7 @@
 			aria-haspopup="menu"
 			aria-expanded={comparePickerOpen}
 		>
-			<span>Compare</span><span class="kbd">{fmtKbd('⌘D')}</span>
+			<span>Compare</span><span class="kbd">{shortcutLabel('compare.pick')}</span>
 		</button>
 		<button
 			class="tba"
@@ -159,7 +161,7 @@
 			disabled={!hasActiveDoc}
 			title="Export to JSON (pretty / minified) · YAML · CSV · XML"
 		>
-			<span>Export</span><span class="kbd">{fmtKbd('⌘E')}</span>
+			<span>Export</span><span class="kbd">{shortcutLabel('doc.export')}</span>
 		</button>
 	</div>
 </nav>

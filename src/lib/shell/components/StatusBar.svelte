@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { DocStatus } from '../logic/status';
 	import { updateCheck } from '$lib/shell/state/update-check.svelte';
-	import { fmtKbd } from '$lib/util/platform';
+	import { shortcutLabel } from '$lib/shell/logic/shortcuts';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { MessageSquarePlus } from '@lucide/svelte';
 
@@ -74,9 +74,9 @@
 		class="sb-cell right kbd-cell"
 		onclick={() => onPaletteOpen?.()}
 		disabled={!onPaletteOpen}
-		title={`Command palette (${fmtKbd('⌘K')})`}
+		title={`Command palette (${shortcutLabel('palette.toggle')})`}
 	>
-		<span class="kbd">{fmtKbd('⌘K')}</span><span class="cmd">Commands</span>
+		<span class="kbd">{shortcutLabel('palette.toggle')}</span><span class="cmd">Commands</span>
 	</button>
 
 	{#if onFeedback}

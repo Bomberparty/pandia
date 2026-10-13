@@ -4,7 +4,7 @@
 		SCHEMA_DEBOUNCE_IMMEDIATE,
 		SCHEMA_DEBOUNCE_MANUAL,
 	} from './state/behavior-prefs.svelte';
-	import { fmtKbd } from '$lib/util/platform';
+	import { shortcutLabel } from '$lib/shell/logic/shortcuts';
 	import TerminalCommandField from './TerminalCommandField.svelte';
 
 	$effect(() => {
@@ -169,8 +169,8 @@
 				<span class="switch-text">{behaviorPrefs.autoSaveOnIdle ? 'on' : 'off'}</span>
 			</button>
 			<div class="text-sm dim">
-				Save file-backed documents automatically after a brief pause in typing. When off, {fmtKbd(
-					'⌘S',
+				Save file-backed documents automatically after a brief pause in typing. When off, {shortcutLabel(
+					'doc.save',
 				)} saves manually and closing an unsaved tab prompts to save.
 			</div>
 			{#if behaviorPrefs.autoSaveOnIdle}

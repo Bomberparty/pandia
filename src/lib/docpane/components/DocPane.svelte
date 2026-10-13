@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { ipc } from '$lib/ipc/client';
 	import { decodeLossless } from '$lib/ipc/wire';
 	import { describeError } from '$lib/ipc/error-copy';
@@ -30,9 +29,8 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import { Check, X } from '@lucide/svelte';
 	import { fmtBytes } from '$lib/util/format';
-	import { fmtKbd } from '$lib/util/platform';
+	import { shortcutLabel } from '$lib/shell/logic/shortcuts';
 	import { createDocPaneCommands } from '../logic/doc-pane-commands';
-	import { handleDocMenuEvent } from '../logic/doc-menu-events';
 	import { DocumentSession } from '../state/document-session.svelte';
 	import type { DocPaneActions } from '../logic/doc-actions';
 	import { lastResult, schemaSessions } from '$lib/panels/state/schema-store.svelte';
@@ -46,7 +44,6 @@
 
 	interface Props {
 		tabId: string;
-		// The pane's way into its tab: registers what it shows, gives its hand-off.
 		slot: TabSlot;
 		isActive: boolean;
 		pendingOpen?: OpenSource | null;
@@ -206,23 +203,6 @@
 		exitCompare: compare.exit,
 	};
 
-	$effect(() => {
-		let unlisten: UnlistenFn | null = null;
-		let cancelled = false;
-		listen<string>('menu-event', (e) => {
-			if (isActive) handleDocMenuEvent(e.payload, actions);
-		}).then((fn) => {
-			if (cancelled) fn();
-			else unlisten = fn;
-		});
-		return () => {
-			cancelled = true;
-			unlisten?.();
-		};
-	});
-
-	// Built from single values, so a refreshed summary with the same version keeps the same
-	// context and the panels reading it don't reload.
 	const contextHandle = $derived(session.handle);
 	const contextVersion = $derived(session.summary?.version ?? null);
 	const contextFileBacked = $derived(session.summary?.fileBacked ?? false);
@@ -408,13 +388,13 @@
 					class="vm"
 					class:active={doc.viewMode === 'tree'}
 					onclick={() => void doc.switchView('tree')}
-					title={`tree view (${fmtKbd('⌘1')})`}>Tree</button
+					title={`tree view (${shortcutLabel('view.tree')})`}>Tree</button
 				>
 				<button
 					class="vm"
 					class:active={doc.viewMode === 'code'}
 					onclick={() => void doc.switchView('code')}
-					title={`code view (${fmtKbd('⌘2')})`}>Code</button
+					title={`code view (${shortcutLabel('view.code')})`}>Code</button
 				>
 				<button
 					class="vm"
@@ -422,8 +402,8 @@
 					class:available={gridSchema?.gridSuitable && doc.viewMode !== 'grid'}
 					onclick={() => void doc.switchView('grid')}
 					title={gridSchema?.gridSuitable
-						? `grid view (${fmtKbd('⌘3')}) · this document looks like a grid`
-						: `grid view (${fmtKbd('⌘3')})`}
+						? `grid view (${shortcutLabel('view.grid')}) · this document looks like a grid`
+						: `grid view (${shortcutLabel('view.grid')})`}
 					>Grid{#if gridSchema?.gridSuitable && doc.viewMode !== 'grid'}<span
 							class="vm-dot"
 							aria-hidden="true"
@@ -433,7 +413,7 @@
 					class="vm"
 					class:active={doc.viewMode === 'graph'}
 					onclick={() => void doc.switchView('graph')}
-					title={`graph view (${fmtKbd('⌘4')})`}>Graph</button
+					title={`graph view (${shortcutLabel('view.graph')})`}>Graph</button
 				>
 				{#if doc.viewMode === 'compare'}
 					<button class="vm active" onclick={compare.exit} title="exit compare">Compare</button>
@@ -458,7 +438,7 @@
 			<span class="info-list"
 				><span class="info-item"
 					>{slot.handoff?.repliesToTerminal
-						? `Save (${fmtKbd('⌘S')}) to send this back, then close the tab. Closing without saving sends nothing.`
+						? `Save (${shortcutLabel('doc.save')}) to send this back, then close the tab. Closing without saving sends nothing.`
 						: 'Close this tab when you are done.'}</span
 				></span
 			>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
+	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { open as openDialog, message, ask } from '@tauri-apps/plugin-dialog';
 	import { open as openInBrowser } from '@tauri-apps/plugin-shell';
@@ -13,12 +13,8 @@
 	import { describeError } from '$lib/ipc/error-copy';
 	import CommandPalette from '$lib/palette/CommandPalette.svelte';
 	import { commandRegistry } from '$lib/palette/state/command-store.svelte';
-	import {
-		buildShellCommands,
-		buildMenuRouteMap,
-		type ShellCommandDeps,
-	} from '$lib/shell/logic/app-commands';
-	import { matchMenuShortcut } from '$lib/shell/logic/shortcuts';
+	import { buildShellCommands, type ShellCommandDeps } from '$lib/shell/logic/app-commands';
+	import { matchShortcut } from '$lib/shell/logic/shortcuts';
 	import DocPane from '$lib/docpane/components/DocPane.svelte';
 	import HelpDialog from '$lib/shell/components/HelpDialog.svelte';
 	import FeedbackDialog from '$lib/shell/components/FeedbackDialog.svelte';
@@ -374,14 +370,13 @@
 	$effect(() => {
 		let unlisten: UnlistenFn | null = null;
 		let cancelled = false;
-		const menuRoutes = buildMenuRouteMap(shellCommandDeps);
 		listen<string>('menu-event', (e) => {
 			const id = e.payload;
 			if (id.startsWith('recent::')) {
 				const path = id.slice('recent::'.length);
 				void workspace.open({ kind: 'file', path });
 			} else {
-				menuRoutes[id]?.();
+				commandRegistry.run(id);
 			}
 		}).then((fn) => {
 			if (cancelled) fn();
@@ -395,10 +390,10 @@
 
 	function onWindowKeydown(e: KeyboardEvent) {
 		if (e.defaultPrevented) return; // a focused editor/input already handled it
-		const id = matchMenuShortcut(e);
+		const id = matchShortcut(e);
 		if (!id) return;
 		e.preventDefault();
-		void emit('menu-event', id);
+		commandRegistry.run(id);
 	}
 
 	function onTopBarPointerDown(e: PointerEvent) {

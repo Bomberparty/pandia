@@ -15,8 +15,7 @@ export interface Command {
 	id: string;
 	label: string;
 	category: CommandCategory;
-
-	keybinding?: string;
+	hidden?: boolean;
 
 	enabled?: () => boolean;
 	run: () => void | Promise<void>;
@@ -35,6 +34,11 @@ class CommandRegistry {
 
 	get(id: string): Command | undefined {
 		return this.list.find((c) => c.id === id);
+	}
+
+	run(id: string): void {
+		const cmd = this.get(id);
+		if (cmd && (!cmd.enabled || cmd.enabled())) void cmd.run();
 	}
 }
 
