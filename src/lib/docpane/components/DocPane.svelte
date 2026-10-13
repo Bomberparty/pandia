@@ -2,6 +2,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { ipc } from '$lib/ipc/client';
+	import { decodeLossless } from '$lib/ipc/wire';
 	import { describeError } from '$lib/ipc/error-copy';
 	import type {
 		ColumnSchema,
@@ -336,6 +337,16 @@
 		})();
 	});
 
+	async function readString(path: Path): Promise<string | null> {
+		if (!session.handle) return null;
+		try {
+			const value = decodeLossless(await ipc.docGetValue(session.handle, path));
+			return typeof value === 'string' ? value : null;
+		} catch {
+			return null;
+		}
+	}
+
 	function onRowMenu(rowIndex: number, x: number, y: number) {
 		const row = tree.rows[rowIndex];
 		if (row?.variant !== 'content') return;
@@ -494,6 +505,7 @@
 		<div class="tree-pane">
 			<TreeView
 				rows={tree.rows}
+				{readString}
 				selectedIndex={nav.selectedIndex}
 				onToggle={tree.toggleAt}
 				onSelect={nav.selectRow}

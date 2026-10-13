@@ -15,6 +15,8 @@
 		type VirtualGapRow,
 	} from '../logic/model';
 	import { chipText, openBracket, renderKey, detectUrl } from '../logic/row-format';
+	import { mayBeImage } from '$lib/views/shared/image-source';
+	import { imagePreview } from '$lib/views/shared/image-preview.svelte';
 	import { editActionFor } from '../logic/row-menu-model';
 	import { gapAt, ROW_DRAG_EDGE_ZONE, ROW_DRAG_MAX_STEP } from '../logic/row-drag-math';
 	import { createAutoScroller } from '$lib/ui/auto-scroll';
@@ -64,6 +66,8 @@
 		onScrollerReady?: (el: HTMLElement) => void;
 
 		onMaterializeGap?: (gap: VirtualGapRow, fromIdx: number, toIdx: number) => void;
+
+		readString?: (path: Path) => Promise<string | null>;
 	}
 
 	let {
@@ -86,6 +90,7 @@
 		cutPath = null,
 		onScrollerReady,
 		onMaterializeGap,
+		readString,
 	}: Props = $props();
 
 	const cutKey = $derived(cutPath ? pathKey(cutPath) : null);
@@ -229,6 +234,14 @@
 		openInBrowser(url).catch(() => {});
 	}
 
+	// A long string's preview is cut short, so embedded images read the full value on demand.
+	function onImageHover(e: PointerEvent, row: ContentRow) {
+		const url = detectUrl(row.preview);
+		imagePreview.hoverStart(e.currentTarget as Element, () =>
+			url ? Promise.resolve(url) : (readString?.(row.path) ?? Promise.resolve(null)),
+		);
+	}
+
 	function onRowClick(i: number, row: Row) {
 		onSelect(i);
 		if (row.variant === 'content' && isExpandable(row)) {
@@ -370,6 +383,7 @@
 			{#if isContent(row)}
 				{@const expandable = isExpandable(row)}
 				{@const url = row.kind === 'string' ? detectUrl(row.preview) : null}
+				{@const image = row.kind === 'string' && mayBeImage(url ?? row.preview.slice(1))}
 				{@const selected = i === selectedIndex}
 				{@const diff = diffHighlights?.get(pathKey(row.path))}
 				{@const invalid = invalidMarks?.get(pathKey(row.path))}
@@ -440,9 +454,19 @@
 					{:else if chipText(row)}
 						<span class="chip {row.kind}">{chipText(row)}</span>
 					{:else if url}
-						<a class="v string url" href={url} onclick={(e) => onUrlClick(e, url)}>{row.preview}</a>
+						<a
+							class="v string url"
+							href={url}
+							onclick={(e) => onUrlClick(e, url)}
+							onpointerenter={image ? (e) => onImageHover(e, row) : undefined}
+							onpointerleave={image ? imagePreview.hoverEnd : undefined}>{row.preview}</a
+						>
 					{:else}
-						<span class="v {row.kind}">{row.preview}</span>
+						<span
+							class="v {row.kind}"
+							onpointerenter={image ? (e) => onImageHover(e, row) : undefined}
+							onpointerleave={image ? imagePreview.hoverEnd : undefined}>{row.preview}</span
+						>
 					{/if}
 					{#if !readOnly}
 						<button

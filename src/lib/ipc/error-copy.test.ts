@@ -99,10 +99,10 @@ describe('describeError — backend kinds', () => {
 
 	it('file errors name the file, say what went wrong and how to fix it, never the OS code', () => {
 		expect(fileError('missing', 'open')).toBe(
-			"Couldn't open “data.json” — the file no longer exists. It may have been moved, renamed, or deleted.",
+			"Couldn't open “data.json” — there's no file at that path. It may have been moved, renamed, or deleted.",
 		);
 		expect(fileError('missing', 'save')).toBe(
-			"Couldn't save “data.json” — the folder no longer exists. Choose another location.",
+			"Couldn't save “data.json” — that folder doesn't exist. Choose another location.",
 		);
 		expect(fileError('noPermission', 'open')).toBe(
 			"Couldn't open “data.json” — Pandia doesn't have permission to read it.",

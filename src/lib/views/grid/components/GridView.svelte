@@ -7,6 +7,8 @@
 		PX_PER_CH,
 	} from '../logic/grid-geometry';
 	import { cellClass, cellRender, cellTitle } from '../logic/grid-cell';
+	import { mayBeImage } from '$lib/views/shared/image-source';
+	import { imagePreview } from '$lib/views/shared/image-preview.svelte';
 	import { contentXFromClient, gapForX } from '../logic/column-reorder-math';
 	import { createAutoScroller } from '$lib/ui/auto-scroll';
 	import { GridDataController, ROW_HEIGHT } from '../state/grid-data.svelte';
@@ -395,16 +397,21 @@
 							{#if i >= colWindow.start && i < colWindow.end}
 								{@const v = data.getCell(rowIdx, col.key)}
 								{@const text = cellRender(v)}
+								{@const image = typeof v === 'string' && mayBeImage(v)}
 								<div
 									class={cellClass(v)}
 									class:selected={selection.selected?.row === rowIdx &&
 										selection.selected?.col === col.key}
 									style="left: {columnLayout.offsets[i]}px; width: {columnLayout.widths[i]}px;"
-									title={cellTitle(v)}
+									title={image ? undefined : cellTitle(v)}
 									role="button"
 									tabindex="0"
 									onclick={() => selection.selectCell(rowIdx, col.key)}
 									onkeydown={(e) => selection.onCellKeydown(e, rowIdx, col.key)}
+									onpointerenter={image
+										? (e) => imagePreview.hoverStart(e.currentTarget, async () => v)
+										: undefined}
+									onpointerleave={image ? imagePreview.hoverEnd : undefined}
 								>
 									{#if text.includes('\n') || text.includes('\r')}
 										{@const parts = text.replace(/\r\n|\r/g, '\n').split('\n')}

@@ -26,6 +26,7 @@ const store = definePrefs({
 		warnLargeFileOpen: boolField(true),
 		restoreTabsOnLaunch: boolField(true),
 		allowHttpSchemas: boolField(false),
+		loadWebImages: boolField(false),
 	},
 });
 
@@ -37,4 +38,5 @@ export const behaviorPrefs = Object.assign(store, {
 	setWarnLargeFileOpen: (on: boolean) => store.set('warnLargeFileOpen', on),
 	setRestoreTabsOnLaunch: (on: boolean) => store.set('restoreTabsOnLaunch', on),
 	setAllowHttpSchemas: (on: boolean) => store.set('allowHttpSchemas', on),
+	setLoadWebImages: (on: boolean) => store.set('loadWebImages', on),
 });

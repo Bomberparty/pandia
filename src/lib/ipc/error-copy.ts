@@ -73,8 +73,8 @@ function ioReason(problem: IoProblem, writing: boolean): string | null {
 	switch (problem) {
 		case 'missing':
 			return writing
-				? 'the folder no longer exists. Choose another location.'
-				: 'the file no longer exists. It may have been moved, renamed, or deleted.';
+				? "that folder doesn't exist. Choose another location."
+				: "there's no file at that path. It may have been moved, renamed, or deleted.";
 		case 'noPermission':
 			return writing
 				? "Pandia doesn't have permission to write there. Choose another location."

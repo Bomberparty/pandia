@@ -79,6 +79,25 @@
 	</section>
 
 	<section class="field">
+		<div class="field-label">image previews from the web</div>
+		<div class="field-control">
+			<button
+				class="switch"
+				role="switch"
+				aria-checked={behaviorPrefs.loadWebImages}
+				onclick={() => behaviorPrefs.setLoadWebImages(!behaviorPrefs.loadWebImages)}
+			>
+				<span class="switch-knob"></span>
+				<span class="switch-text">{behaviorPrefs.loadWebImages ? 'on' : 'off'}</span>
+			</button>
+			<div class="text-sm dim">
+				Hovering an https:// image link shows a preview without asking. Off asks first, because
+				loading an image contacts the server it lives on. Embedded images always preview.
+			</div>
+		</div>
+	</section>
+
+	<section class="field">
 		<div class="field-label">restore tabs on launch</div>
 		<div class="field-control">
 			<button
