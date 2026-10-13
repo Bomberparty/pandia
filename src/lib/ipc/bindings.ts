@@ -54,7 +54,9 @@ export const commands = {
 	docExportToFile: (handle: DocHandle, format: ExportFormat, path: string) => __TAURI_INVOKE<null>("doc_export_to_file", { handle, format, path }),
 	refreshRecentFiles: (items: RecentFile[]) => __TAURI_INVOKE<null>("refresh_recent_files", { items }),
 	drainPendingFiles: () => __TAURI_INVOKE<PendingFile[]>("drain_pending_files"),
-	cliWaitDone: (id: string, code: number) => __TAURI_INVOKE<void>("cli_wait_done", { id, code }),
+	cliWaitDone: (id: string, report: TabReport) => __TAURI_INVOKE<void>("cli_wait_done", { id, report }),
+	/**  Sends a piped document back to the terminal waiting on it. */
+	cliReply: (handle: DocHandle, path: string) => __TAURI_INVOKE<null>("cli_reply", { handle, path }),
 	cliDiscardPiped: (path: string) => __TAURI_INVOKE<void>("cli_discard_piped", { path }),
 	shellCommandStatus: () => __TAURI_INVOKE<ShellCommand>("shell_command_status"),
 	shellCommandInstall: () => __TAURI_INVOKE<ShellCommand>("shell_command_install"),
@@ -251,6 +253,7 @@ export type PendingFile = {
 	schema: string | null,
 	compareWith: string | null,
 	wait: string | null,
+	reply: string | null,
 };
 
 export type RecentFile = {
@@ -272,6 +275,11 @@ export type RepairResult = {
 export type ReplaceResult = {
 	count: number,
 	applied: ApplyResult | null,
+};
+
+export type ReportError = {
+	pointer: string,
+	message: string,
 };
 
 export type RowJson = {
@@ -327,6 +335,17 @@ export type Summary = {
 	fileBacked: boolean,
 	recoveryNote: string | null,
 	commentsStripped: boolean,
+};
+
+/**  What happened to one tab a `--wait` launch opened, reported when the tab closes. */
+export type TabReport = {
+	path: string | null,
+	opened: boolean,
+	saved: boolean,
+	valid: boolean | null,
+	errorCount: number,
+	errors: ReportError[],
+	problem: string | null,
 };
 
 export type TypegenLang = "typescript" | "rust" | "go" | "kotlin" | "json-schema" | "python" | "php" | "java" | "zod" | "dart";

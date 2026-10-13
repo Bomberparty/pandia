@@ -58,6 +58,10 @@ export class DocSessionController {
 	repairInfo: RepairInfo | null = $state(null);
 	diagnosis: Diagnosis | null = $state(null);
 
+	savedThisSession = $state(false);
+	// Set for piped input a terminal waits on: Save sends the document back there.
+	replyTo: string | null = $state(null);
+
 	private lastErrorKind: IpcErrorKind | null = null;
 
 	constructor(private deps: DocSessionDeps) {}
@@ -160,6 +164,7 @@ export class DocSessionController {
 		this.sourceName = null;
 		this.repairInfo = null;
 		this.diagnosis = null;
+		this.savedThisSession = false;
 		this.deps.tree.setRows([]);
 		this.deps.setSelectedPath(null);
 		this.deps.clearViewState();
@@ -223,6 +228,7 @@ export class DocSessionController {
 	save = async (opts: { silent?: boolean } = {}): Promise<boolean> => {
 		if (!this.handle || !this.summary) return true;
 		if (!(await this.deps.flushPendingEdits())) return false;
+		if (this.replyTo) return this.sendReply(this.replyTo, opts);
 		if (!this.summary.fileBacked) {
 			return this.saveAs(opts);
 		}
@@ -236,6 +242,7 @@ export class DocSessionController {
 		try {
 			const res = await ipc.docSave(this.handle, null);
 			this.clearBackup();
+			this.savedThisSession = true;
 			await this.refreshSummary();
 			if (!opts.silent) this.deps.flash(`saved ${basename(res.path)}`);
 			return true;
@@ -262,9 +269,25 @@ export class DocSessionController {
 		try {
 			const res = await ipc.docSave(this.handle, picked);
 			this.clearBackup();
+			this.savedThisSession = true;
 			this.sourceName = picked;
 			await this.refreshSummary();
 			if (!opts.silent) this.deps.flash(`saved ${basename(res.path)}`);
+			return true;
+		} catch (e) {
+			this.deps.setError(describeError(e));
+			return false;
+		}
+	};
+
+	private sendReply = async (path: string, opts: { silent?: boolean }): Promise<boolean> => {
+		if (!this.handle) return false;
+		try {
+			await ipc.cliReply(this.handle, path);
+			this.clearBackup();
+			this.savedThisSession = true;
+			await this.refreshSummary();
+			if (!opts.silent) this.deps.flash('sent back to the terminal');
 			return true;
 		} catch (e) {
 			this.deps.setError(describeError(e));

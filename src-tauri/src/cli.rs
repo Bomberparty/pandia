@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -14,8 +14,10 @@ pub(crate) const LAUNCHED_ENV: &str = "PANDIA_LAUNCHED";
 // travel through temp files. The app only reads, deletes or writes files with these prefixes.
 const STDIN_PREFIX: &str = "pandia-stdin-";
 const WAIT_PREFIX: &str = "pandia-wait-";
+const REPLY_PREFIX: &str = "pandia-reply-";
 const STDIN_FILE_FLAG: &str = "--stdin-file";
 const WAIT_ID_FLAG: &str = "--wait-id";
+const REPLY_FILE_FLAG: &str = "--reply-file";
 
 const USAGE: &str = "\
 Usage: pandia [options] [file ...]
@@ -23,13 +25,20 @@ Usage: pandia [options] [file ...]
   pandia data.json                      open files in Pandia
   curl -s https://api.dev/x | pandia -  open what is piped in
   pandia --diff old.json new.json       compare two files
+  pandia --wait - < in.json > out.json  edit piped JSON; save to send it back
 
 Options:
   --schema <path|url>  validate the opened files against this schema
   --diff <a> <b>       open <a> in Compare against <b>
-  --wait               return after you close the opened tabs. Exits 1 if
-                       a file didn't open or the Schema panel shows errors
+  --wait               return after you close the opened tabs
+  --json               with --wait, print a JSON report of what happened
   -h, --help           show this help
+
+Exit codes with --wait:
+  0  the tabs closed and the Schema panel showed no errors
+  1  a file didn't open, or the Schema panel showed errors
+  2  the command was mistyped
+  3  piped input closed without saving, so nothing was sent back
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
@@ -40,6 +49,8 @@ pub(crate) struct PendingFile {
     pub schema: Option<String>,
     pub compare_with: Option<String>,
     pub wait: Option<String>,
+    // Where Save sends piped input back to a waiting terminal.
+    pub reply: Option<String>,
 }
 
 impl PendingFile {
@@ -50,8 +61,46 @@ impl PendingFile {
             schema: None,
             compare_with: None,
             wait: None,
+            reply: None,
         }
     }
+}
+
+/// What happened to one tab a `--wait` launch opened, reported when the tab closes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TabReport {
+    // None for piped input.
+    pub path: Option<String>,
+    pub opened: bool,
+    pub saved: bool,
+    // None when no schema validated the tab.
+    pub valid: Option<bool>,
+    pub error_count: u32,
+    pub errors: Vec<ReportError>,
+    // Why the file didn't open, or why its schema couldn't be used.
+    pub problem: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReportError {
+    pub pointer: String,
+    pub message: String,
+}
+
+impl TabReport {
+    fn exit_code(&self) -> i32 {
+        let failed = !self.opened || self.problem.is_some() || self.valid == Some(false);
+        i32::from(failed)
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WaitReport {
+    exit_code: i32,
+    files: Vec<TabReport>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -61,9 +110,11 @@ struct Request {
     diff: Option<(String, String)>,
     stdin: bool,
     wait: bool,
+    json: bool,
     help: bool,
     stdin_file: Option<String>,
     wait_id: Option<String>,
+    reply_file: Option<String>,
     problems: Vec<String>,
 }
 
@@ -79,6 +130,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Request {
             "-" => req.stdin = true,
             "-h" | "--help" => req.help = true,
             "--wait" => req.wait = true,
+            "--json" => req.json = true,
             "--schema" => match inline.or_else(|| args.next()) {
                 Some(value) => req.schema = Some(value),
                 None => req
@@ -93,11 +145,17 @@ fn parse(args: impl IntoIterator<Item = String>) -> Request {
             },
             STDIN_FILE_FLAG => req.stdin_file = inline,
             WAIT_ID_FLAG => req.wait_id = inline,
+            REPLY_FILE_FLAG => req.reply_file = inline,
             _ if arg.starts_with('-') => req.problems.push(format!(
                 "{arg} isn't a Pandia option. Run pandia --help to see the options."
             )),
             _ => req.files.push(arg),
         }
+    }
+    if req.json && !req.wait {
+        req.problems.push(
+            "--json reports what happened when you close the tabs, so it needs --wait, like: pandia --wait --json config.json".into(),
+        );
     }
     req
 }
@@ -133,32 +191,40 @@ pub(crate) fn pending_from(
     let schema = req.schema.as_deref().map(resolve);
     let wait = req.wait_id.filter(|id| is_handoff(id, WAIT_PREFIX));
 
-    let mut opens: Vec<(String, bool, Option<String>)> = req
-        .files
-        .iter()
-        .map(|f| (resolve(f), false, None))
-        .collect();
+    let file = |path: String| PendingFile {
+        schema: schema.clone(),
+        wait: wait.clone(),
+        ..PendingFile::file(path)
+    };
+
+    let mut opens: Vec<PendingFile> = req.files.iter().map(|f| file(resolve(f))).collect();
     if let Some((a, b)) = &req.diff {
-        opens.push((resolve(a), false, Some(resolve(b))));
+        opens.push(PendingFile {
+            compare_with: Some(resolve(b)),
+            ..file(resolve(a))
+        });
     }
     if let Some(path) = req.stdin_file.filter(|p| is_handoff(p, STDIN_PREFIX)) {
-        handoffs.lock().piped.push(path.clone());
-        opens.push((path, true, None));
+        let reply = req.reply_file.filter(|p| is_handoff(p, REPLY_PREFIX));
+        let mut files = handoffs.lock();
+        files.piped.push(path.clone());
+        files.replies.extend(reply.clone());
+        drop(files);
+        opens.push(PendingFile {
+            piped: true,
+            reply,
+            ..file(path)
+        });
     }
 
     if let Some(id) = &wait {
         handoffs.expect(id, opens.len());
     }
     opens
-        .into_iter()
-        .map(|(path, piped, compare_with)| PendingFile {
-            path,
-            piped,
-            schema: schema.clone(),
-            compare_with,
-            wait: wait.clone(),
-        })
-        .collect()
+}
+
+pub(crate) fn is_reply(handoffs: &Handoffs, path: &str) -> bool {
+    handoffs.lock().replies.iter().any(|p| p == path)
 }
 
 /// The hand-off files of every launch: the tabs each `--wait` is waiting on, and piped input,
@@ -168,8 +234,9 @@ pub(crate) struct Handoffs(Mutex<HandoffFiles>);
 
 #[derive(Default)]
 pub(crate) struct HandoffFiles {
-    waits: HashMap<String, (usize, i32)>,
+    waits: HashMap<String, (usize, Vec<TabReport>)>,
     piped: Vec<String>,
+    replies: Vec<String>,
 }
 
 impl Handoffs {
@@ -179,21 +246,22 @@ impl Handoffs {
 
     fn expect(&self, id: &str, tabs: usize) {
         if tabs == 0 {
-            return finish_wait(id, 0);
+            return finish_wait(id, Vec::new());
         }
-        self.lock().waits.entry(id.to_string()).or_insert((0, 0)).0 += tabs;
+        self.lock().waits.entry(id.to_string()).or_default().0 += tabs;
     }
 
-    pub fn release(&self, id: &str, code: i32) {
+    pub fn release(&self, id: &str, report: TabReport) {
         let mut files = self.lock();
-        let Some((open, worst)) = files.waits.get_mut(id) else {
+        let Some((open, reports)) = files.waits.get_mut(id) else {
             return;
         };
         *open = open.saturating_sub(1);
-        *worst = (*worst).max(code);
+        reports.push(report);
         if *open == 0 {
-            finish_wait(id, *worst);
-            files.waits.remove(id);
+            if let Some((_, reports)) = files.waits.remove(id) {
+                finish_wait(id, reports);
+            }
         }
     }
 
@@ -206,8 +274,8 @@ impl Handoffs {
 
     pub fn finish_all(&self) {
         let mut files = self.lock();
-        for (id, (_, worst)) in files.waits.drain() {
-            finish_wait(&id, worst);
+        for (id, (_, reports)) in files.waits.drain() {
+            finish_wait(&id, reports);
         }
         for path in files.piped.drain(..) {
             let _ = std::fs::remove_file(path);
@@ -215,8 +283,11 @@ impl Handoffs {
     }
 }
 
-fn finish_wait(id: &str, code: i32) {
-    let _ = std::fs::write(id, code.to_string());
+fn finish_wait(id: &str, files: Vec<TabReport>) {
+    let exit_code = files.iter().map(TabReport::exit_code).max().unwrap_or(0);
+    if let Ok(json) = serde_json::to_string(&WaitReport { exit_code, files }) {
+        let _ = std::fs::write(id, json);
+    }
 }
 
 /// Runs when `pandia …` is typed in a terminal: hands the request to the app in a detached
@@ -232,7 +303,10 @@ pub(crate) fn launch(args: Vec<String>) -> i32 {
         return 2;
     }
     match hand_off(&req, args) {
-        Ok(code) => code,
+        Ok((code, out)) => {
+            print!("{out}");
+            code
+        }
         Err(message) => {
             eprintln!("pandia: {message}");
             2
@@ -240,7 +314,7 @@ pub(crate) fn launch(args: Vec<String>) -> i32 {
     }
 }
 
-fn hand_off(req: &Request, args: Vec<String>) -> Result<i32, String> {
+fn hand_off(req: &Request, args: Vec<String>) -> Result<(i32, String), String> {
     let opens_something = !req.files.is_empty() || req.diff.is_some() || req.stdin;
     if req.wait && !opens_something {
         return Err("--wait needs a file to open, like: pandia --wait config.json".into());
@@ -250,12 +324,62 @@ fn hand_off(req: &Request, args: Vec<String>) -> Result<i32, String> {
         let saved = save_stdin()?;
         app_args.push(format!("{STDIN_FILE_FLAG}={}", saved.display()));
     }
+    let reply = if req.stdin && req.wait {
+        let path = handoff_path(REPLY_PREFIX, ".json");
+        create_private(&path).map_err(|_| {
+            format!(
+                "couldn't prepare a reply file in {}. Check that the folder exists and the disk has free space.",
+                std::env::temp_dir().display()
+            )
+        })?;
+        app_args.push(format!("{REPLY_FILE_FLAG}={}", path.display()));
+        Some(path)
+    } else {
+        None
+    };
     let marker = req.wait.then(|| handoff_path(WAIT_PREFIX, ""));
     if let Some(marker) = &marker {
         app_args.push(format!("{WAIT_ID_FLAG}={}", marker.display()));
     }
     spawn_app(&app_args)?;
-    Ok(marker.map_or(0, |m| wait_for(&m)))
+    let Some(marker) = marker else {
+        return Ok((0, String::new()));
+    };
+    let report = wait_for(&marker);
+    let reply_text = reply.map(|path| {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+        text
+    });
+    Ok(finish(report, reply_text, req.json))
+}
+
+/// Turns what the app reported into the exit code and what the terminal prints. `reply` is the
+/// saved piped input when the launch piped some in, empty if it was closed without saving.
+fn finish(mut report: WaitReport, reply: Option<String>, json: bool) -> (i32, String) {
+    let reply = reply.map(|text| (!text.trim().is_empty()).then_some(text));
+    let unsent = matches!(reply, Some(None));
+    if let Some(stdin_tab) = report.files.iter_mut().find(|f| f.path.is_none()) {
+        stdin_tab.saved = !unsent;
+    }
+    let code = if unsent {
+        report.exit_code.max(3)
+    } else {
+        report.exit_code
+    };
+    let content = reply.flatten();
+    if !json {
+        return (code, content.unwrap_or_default());
+    }
+    report.exit_code = code;
+    let mut value = serde_json::to_value(&report).unwrap_or_default();
+    if let (Some(text), Some(files)) = (content, value["files"].as_array_mut()) {
+        let parsed = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
+        if let Some(stdin_tab) = files.iter_mut().find(|f| f["path"].is_null()) {
+            stdin_tab["content"] = parsed;
+        }
+    }
+    (code, format!("{value:#}\n"))
 }
 
 fn handoff_path(prefix: &str, ext: &str) -> PathBuf {
@@ -337,13 +461,14 @@ fn spawn_app(args: &[String]) -> Result<(), String> {
     cmd.spawn().map(drop).map_err(|_| failed())
 }
 
-fn wait_for(marker: &Path) -> i32 {
+// A half-written report doesn't parse yet, so it is read again on the next tick.
+fn wait_for(marker: &Path) -> WaitReport {
     loop {
         std::thread::sleep(Duration::from_millis(250));
         if let Ok(text) = std::fs::read_to_string(marker) {
-            if let Ok(code) = text.trim().parse() {
+            if let Ok(report) = serde_json::from_str(&text) {
                 let _ = std::fs::remove_file(marker);
-                return code;
+                return report;
             }
         }
     }
@@ -355,6 +480,18 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn report(path: &str) -> TabReport {
+        TabReport {
+            path: Some(path.into()),
+            opened: true,
+            saved: false,
+            valid: None,
+            error_count: 0,
+            errors: vec![],
+            problem: None,
+        }
     }
 
     fn pending(list: &[&str]) -> Vec<PendingFile> {
@@ -441,11 +578,21 @@ mod tests {
         let got = pending_from(args(&["a.json", "b.json", &flag]), &dir, &waits);
         assert!(got.iter().all(|p| p.wait.as_deref() == Some(id.as_str())));
 
-        waits.release(&id, 1);
+        let invalid = TabReport {
+            valid: Some(false),
+            error_count: 1,
+            errors: vec![ReportError {
+                pointer: "/retries".into(),
+                message: "\"3\" is not of type \"integer\"".into(),
+            }],
+            ..report("/w/a.json")
+        };
+        waits.release(&id, invalid.clone());
         assert!(!marker.exists());
-        waits.release(&id, 0);
-        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "1");
-        assert_eq!(wait_for(&marker), 1);
+        waits.release(&id, report("/w/b.json"));
+        let got = wait_for(&marker);
+        assert_eq!(got.exit_code, 1);
+        assert_eq!(got.files, vec![invalid, report("/w/b.json")]);
         assert!(!marker.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -458,7 +605,7 @@ mod tests {
         let flag = format!("--wait-id={}", marker.display());
         let got = pending_from(args(&[&flag]), &dir, &Handoffs::default());
         assert!(got.is_empty());
-        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "0");
+        assert_eq!(wait_for(&marker).exit_code, 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -476,7 +623,7 @@ mod tests {
 
         handoffs.finish_all();
         assert!(!piped.exists());
-        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "0");
+        assert_eq!(wait_for(&marker).exit_code, 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -517,5 +664,103 @@ mod tests {
             "an existing file is never reused"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_tab_fails_when_it_did_not_open_or_its_schema_did_not_pass() {
+        assert_eq!(report("/w/a.json").exit_code(), 0);
+        let not_opened = TabReport {
+            opened: false,
+            problem: Some("no file".into()),
+            ..report("/w/a.json")
+        };
+        assert_eq!(not_opened.exit_code(), 1);
+        let bad_schema = TabReport {
+            problem: Some("This schema can't be used.".into()),
+            ..report("/w/a.json")
+        };
+        assert_eq!(bad_schema.exit_code(), 1);
+    }
+
+    #[test]
+    fn json_needs_wait() {
+        assert_eq!(
+            parse(args(&["--json", "a.json"])).problems,
+            ["--json reports what happened when you close the tabs, so it needs --wait, like: pandia --wait --json config.json"]
+        );
+        assert!(parse(args(&["--wait", "--json", "a.json"]))
+            .problems
+            .is_empty());
+    }
+
+    #[test]
+    fn piped_input_carries_its_reply_file() {
+        let got = pending(&[
+            "--stdin-file=/tmp/pandia-stdin-1.json",
+            "--reply-file=/tmp/pandia-reply-1.json",
+        ]);
+        assert_eq!(got[0].reply.as_deref(), Some("/tmp/pandia-reply-1.json"));
+        let got = pending(&[
+            "--stdin-file=/tmp/pandia-stdin-1.json",
+            "--reply-file=/home/me/config.json",
+        ]);
+        assert_eq!(got[0].reply, None);
+    }
+
+    #[test]
+    fn saved_piped_input_goes_to_stdout_with_the_tab_exit_code() {
+        let stdin_tab = TabReport {
+            path: None,
+            saved: true,
+            ..report("")
+        };
+        let done = WaitReport {
+            exit_code: 0,
+            files: vec![stdin_tab],
+        };
+        let (code, out) = finish(done, Some("{\"a\": 2}".into()), false);
+        assert_eq!((code, out.as_str()), (0, "{\"a\": 2}"));
+    }
+
+    #[test]
+    fn piped_input_closed_without_saving_sends_nothing_and_exits_3() {
+        let stdin_tab = TabReport {
+            path: None,
+            ..report("")
+        };
+        let done = WaitReport {
+            exit_code: 0,
+            files: vec![stdin_tab],
+        };
+        let (code, out) = finish(done, Some(String::new()), false);
+        assert_eq!((code, out.as_str()), (3, ""));
+    }
+
+    #[test]
+    fn json_report_names_each_file_and_embeds_the_piped_reply() {
+        let stdin_tab = TabReport {
+            path: None,
+            ..report("")
+        };
+        let invalid = TabReport {
+            valid: Some(false),
+            error_count: 1,
+            errors: vec![ReportError {
+                pointer: "/retries".into(),
+                message: "not an integer".into(),
+            }],
+            ..report("/w/config.json")
+        };
+        let done = WaitReport {
+            exit_code: 1,
+            files: vec![invalid, stdin_tab],
+        };
+        let (code, out) = finish(done, Some("{\"a\": 2}".into()), true);
+        assert_eq!(code, 1);
+        let got: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(got["exitCode"], 1);
+        assert_eq!(got["files"][0]["errors"][0]["pointer"], "/retries");
+        assert_eq!(got["files"][1]["saved"], true);
+        assert_eq!(got["files"][1]["content"]["a"].to_string(), "2");
     }
 }

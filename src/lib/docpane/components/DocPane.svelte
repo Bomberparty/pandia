@@ -44,7 +44,7 @@
 	import type { DocPaneActions } from '../logic/doc-actions';
 	import { schemaStore } from '$lib/panels/state/schema-store.svelte';
 	import { autoloadSchema } from '$lib/panels/state/schema-autoload';
-	import { takeCliIntent } from '$lib/shell/state/cli-launch';
+	import { noteCliProblem, takeCliIntent } from '$lib/shell/state/cli-launch';
 	import { commandRegistry } from '$lib/palette/state/command-store.svelte';
 	import type { DocStatus } from '$lib/shell/logic/status';
 	import EmptyState from '$lib/shell/components/EmptyState.svelte';
@@ -67,6 +67,7 @@
 				version: number;
 				sourceName: string | null;
 				fileBacked: boolean;
+				saved: boolean;
 				save: (opts?: { silent?: boolean }) => Promise<boolean>;
 			} | null,
 		) => void;
@@ -131,6 +132,7 @@
 
 	let gridSchema: ColumnSchema | null = $state(null);
 	let gridLoadingFor: number | null = $state(null);
+	let cliWaiting = $state(false);
 	let gridSelected: { path: Path; kind: NodeKind | null } | null = $state(null);
 
 	const doc = new DocumentSession({
@@ -249,6 +251,7 @@
 				version: session.summary.version,
 				sourceName: session.sourceName,
 				fileBacked: session.summary.fileBacked,
+				saved: session.savedThisSession,
 				save: (opts) => session.save(opts),
 			});
 		} else {
@@ -325,7 +328,14 @@
 			onOpened();
 			const s = session.summary;
 			const cli = takeCliIntent(tabId);
-			if (!opened || !session.handle || !s) return;
+			if (cli) {
+				cliWaiting = cli.waiting;
+				session.replyTo = cli.reply;
+			}
+			if (!opened || !session.handle || !s) {
+				if (cli) noteCliProblem(tabId, doc.error ?? "The file didn't open.");
+				return;
+			}
 			if (cli?.compareWith) void compare.start({ kind: 'path', path: cli.compareWith });
 			await autoloadSchema(
 				{
@@ -442,6 +452,19 @@
 			<span class="err-text">{doc.error}</span>
 			<button class="err-dismiss" onclick={() => (doc.error = null)} aria-label="dismiss error"
 				><Icon icon={X} size="sm" /></button
+			>
+		</div>
+	{/if}
+
+	{#if cliWaiting && session.handle}
+		<div class="banner banner-info">
+			<span class="info-head">a terminal is waiting</span>
+			<span class="info-list"
+				><span class="info-item"
+					>{session.replyTo
+						? `Save (${fmtKbd('⌘S')}) to send this back, then close the tab. Closing without saving sends nothing.`
+						: 'Close this tab when you are done.'}</span
+				></span
 			>
 		</div>
 	{/if}

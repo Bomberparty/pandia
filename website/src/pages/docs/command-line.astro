@@ -1,9 +1,24 @@
 ---
 import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const REPORT_EXAMPLE = `{
+  "exitCode": 1,
+  "files": [
+    {
+      "path": "/work/config.json",
+      "opened": true,
+      "saved": true,
+      "valid": false,
+      "errorCount": 1,
+      "errors": [{ "pointer": "/retries", "message": "\\"3\\" is not of type \\"integer\\"" }],
+      "problem": null
+    }
+  ]
+}`;
 ---
 <DocsLayout
   title="Command line"
-  description="Open, pipe and compare JSON from any terminal with the pandia command, validate against a schema, and use Pandia as git's diff tool."
+  description="Open, pipe and compare JSON from any terminal with the pandia command, review piped JSON for a script or AI agent, validate against a schema, and use Pandia as git's diff tool."
   currentDoc="/docs/command-line"
 >
   <h1>Command line</h1>
@@ -49,9 +64,27 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
       <tr><td>0</td><td>You closed the tabs and the Schema panel showed no errors.</td></tr>
       <tr><td>1</td><td>The Schema panel showed errors, or a file didn't open.</td></tr>
       <tr><td>2</td><td>The command was mistyped. Pandia prints what to fix.</td></tr>
+      <tr><td>3</td><td>Piped input was closed without saving, so nothing was sent back.</td></tr>
     </tbody>
   </table>
   <pre><code><span class="k">pandia</span> --wait config.json --schema config.schema.json && <span class="k">echo</span> "config is valid"</code></pre>
+
+  <h2>Review piped JSON and send it back</h2>
+  <p>With <code>--wait</code>, piped input becomes a review step for a script or an AI agent. A
+  bar in the tab says a terminal is waiting. Edit the JSON, press <strong>Save</strong>
+  (<kbd>⌘S</kbd>) to send it back, then close the tab. The command prints the saved JSON.</p>
+  <pre><code><span class="k">cat</span> draft.json | <span class="k">pandia</span> --wait - --schema config.schema.json > config.json</code></pre>
+  <p>Closing the tab without saving sends nothing and exits with 3, so <code>&&</code> stops the
+  rest of the script.</p>
+
+  <h2>Get a report your script can read</h2>
+  <p>Add <code>--json</code> to <code>--wait</code> and the command prints one JSON report when the
+  tabs close, instead of the document:</p>
+  <pre><code>{REPORT_EXAMPLE}</code></pre>
+  <p>Each error names its location as a JSON Pointer. <code>valid</code> is <code>null</code> when no
+  schema ran. <code>problem</code> says why a file didn't open or why its schema couldn't be used.
+  Piped input has a <code>path</code> of <code>null</code>, and once saved, its JSON is in
+  <code>content</code>.</p>
 
   <h2>Use Pandia as git's diff tool</h2>
   <pre><code><span class="k">git</span> config --global difftool.pandia.cmd 'pandia --wait --diff "$LOCAL" "$REMOTE"'
@@ -68,6 +101,7 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
       <tr><td><code>--schema &lt;path|url&gt;</code></td><td>Validate the opened files against this schema.</td></tr>
       <tr><td><code>--diff &lt;a&gt; &lt;b&gt;</code></td><td>Open <code>a</code> in Compare against <code>b</code>.</td></tr>
       <tr><td><code>--wait</code></td><td>Return after you close the opened tabs.</td></tr>
+      <tr><td><code>--json</code></td><td>With <code>--wait</code>, print a JSON report of what happened.</td></tr>
       <tr><td><code>-h</code>, <code>--help</code></td><td>Show the options.</td></tr>
     </tbody>
   </table>

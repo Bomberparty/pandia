@@ -16,6 +16,7 @@ export interface DocContext {
 	sourceName: string | null;
 
 	fileBacked: boolean;
+	saved: boolean;
 
 	save: (opts?: { silent?: boolean }) => Promise<boolean>;
 }
@@ -72,7 +73,7 @@ export class TabStore {
 	close = (id: string) => {
 		const idx = this.tabs.findIndex((t) => t.id === id);
 		if (idx < 0) return;
-		void releaseCliTab(id);
+		void releaseCliTab(id, this.contexts[id] ?? null);
 		schemaStore.clear(id);
 		this.statuses = omit(this.statuses, id);
 		this.contexts = omit(this.contexts, id);
@@ -148,7 +149,8 @@ export class TabStore {
 					prev.handle === ctx.handle &&
 					prev.version === ctx.version &&
 					prev.sourceName === ctx.sourceName &&
-					prev.fileBacked === ctx.fileBacked)
+					prev.fileBacked === ctx.fileBacked &&
+					prev.saved === ctx.saved)
 			)
 				return;
 			this.contexts = { ...this.contexts, [id]: ctx };

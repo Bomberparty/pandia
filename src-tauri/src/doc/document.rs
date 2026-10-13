@@ -385,14 +385,34 @@ impl Document {
         self.comments_stripped = false;
         self.file_path = Some(target.clone());
         self.source_path = Some(target.clone());
-        self.saved_version = self.version;
-        let saved_hash = self.compute_content_hash();
-        self.saved_hash = saved_hash;
-        *self.hash_cache.lock() = Some((self.version, saved_hash));
+        self.mark_saved();
         Ok(SaveResult {
             path: target,
             version: self.version,
         })
+    }
+
+    /// Writes the document into a file it doesn't adopt, such as the reply to a waiting
+    /// `pandia --wait -`, and counts that as saved. The file must already exist, so its private
+    /// permissions are kept.
+    pub fn save_copy(&mut self, target: &str) -> DocResult<()> {
+        use std::io::Write;
+        let text = self.serialize()?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(target)
+            .and_then(|mut file| file.write_all(text.as_bytes()))
+            .map_err(|e| DocError::file(FileOp::Save, FsPath::new(target), e))?;
+        self.mark_saved();
+        Ok(())
+    }
+
+    fn mark_saved(&mut self) {
+        self.saved_version = self.version;
+        let saved_hash = self.compute_content_hash();
+        self.saved_hash = saved_hash;
+        *self.hash_cache.lock() = Some((self.version, saved_hash));
     }
 
     pub fn get_slice(&self, path: &Path, range: Range<u32>) -> DocResult<Vec<NodeView>> {
@@ -1200,6 +1220,34 @@ mod tests {
 
             let _ = std::fs::remove_file(&path);
         }
+    }
+
+    #[test]
+    fn save_copy_sends_edits_to_a_reply_file_without_adopting_it() {
+        let mut d = Document::from_text(r#"{"a": 1}"#, Some("stdin".into())).unwrap();
+        d.apply(&Op::SetValue {
+            path: Path::root(),
+            value: serde_json::json!({ "a": 2 }),
+        })
+        .unwrap();
+        let reply =
+            std::env::temp_dir().join(format!("pandia-reply-copy-{}.json", std::process::id()));
+        std::fs::write(&reply, "").unwrap();
+
+        d.save_copy(&reply.to_string_lossy()).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&reply).unwrap()).unwrap();
+        assert_eq!(written, serde_json::json!({ "a": 2 }));
+        let s = d.summary();
+        assert!(!s.dirty, "sent edits count as saved");
+        assert!(!s.file_backed, "the tab stays an unsaved stdin document");
+        assert_eq!(s.source_path.as_deref(), Some("stdin"));
+
+        std::fs::remove_file(&reply).unwrap();
+        assert!(
+            d.save_copy(&reply.to_string_lossy()).is_err(),
+            "a missing reply file is not recreated with default permissions"
+        );
     }
 
     #[test]

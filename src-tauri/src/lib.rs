@@ -66,6 +66,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             refresh_recent_files,
             drain_pending_files,
             cli_wait_done,
+            commands::cli_reply,
             cli_discard_piped,
             shell_command::shell_command_status,
             shell_command::shell_command_install,
@@ -470,8 +471,8 @@ fn drain_pending_files(state: tauri::State<'_, AppState>) -> Result<Vec<PendingF
 
 #[tauri::command]
 #[specta::specta]
-fn cli_wait_done(state: tauri::State<'_, AppState>, id: String, code: i32) {
-    state.handoffs.release(&id, code);
+fn cli_wait_done(state: tauri::State<'_, AppState>, id: String, report: cli::TabReport) {
+    state.handoffs.release(&id, report);
 }
 
 #[tauri::command]

@@ -304,7 +304,9 @@
 					}
 				} finally {
 					if (shouldClose) {
-						await Promise.all(tabStore.tabs.map((t) => releaseCliTab(t.id)));
+						await Promise.all(
+							tabStore.tabs.map((t) => releaseCliTab(t.id, tabStore.contexts[t.id] ?? null)),
+						);
 						await win.destroy();
 					}
 				}
@@ -458,11 +460,17 @@
 		}
 		for (const file of pending) {
 			const { path, piped } = file;
-			const tabId = (await maybeConfirmLargeFile(path))
-				? tabStore.openInTab(piped ? { kind: 'piped', path } : { kind: 'file', path })
-				: null;
+			if (!(await maybeConfirmLargeFile(path))) {
+				void abandonCliLaunch(file, 'You chose not to open this large file.');
+				continue;
+			}
+			const tabId = tabStore.openInTab(piped ? { kind: 'piped', path } : { kind: 'file', path });
 			if (tabId) rememberCliLaunch(tabId, file);
-			else void abandonCliLaunch(file);
+			else
+				void abandonCliLaunch(
+					file,
+					`Pandia already has ${MAX_TABS} tabs open. Close one, then run the command again.`,
+				);
 		}
 	}
 

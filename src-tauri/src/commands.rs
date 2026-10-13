@@ -881,6 +881,33 @@ pub async fn doc_save(
     run_blocking(move || doc_save_inner(&store, handle, path)).await
 }
 
+fn cli_reply_inner(store: &DocStore, handle: DocHandle, path: &str) -> DocResult<()> {
+    let arc = store.get(handle).ok_or(DocError::NotFound(handle))?;
+    let mut doc = arc.write();
+    doc.save_copy(path)
+}
+
+/// Sends a piped document back to the terminal waiting on it.
+#[tauri::command]
+#[specta::specta]
+pub async fn cli_reply(
+    store: tauri::State<'_, Arc<DocStore>>,
+    app: tauri::State<'_, crate::AppState>,
+    handle: DocHandle,
+    path: String,
+) -> Result<(), WireError> {
+    if !crate::cli::is_reply(&app.handoffs, &path) {
+        return Err(DocError::file(
+            FileOp::Save,
+            std::path::Path::new(&path),
+            std::io::ErrorKind::NotFound.into(),
+        )
+        .into());
+    }
+    let store = store.inner().clone();
+    run_blocking(move || cli_reply_inner(&store, handle, &path)).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn doc_set_file_path(
