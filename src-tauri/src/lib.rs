@@ -45,6 +45,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::doc_replace,
             commands::doc_repair_text,
             commands::doc_validate_schema,
+            commands::read_schema_file,
             commands::doc_generate_types,
             commands::doc_detect_and_convert,
             commands::doc_diagnose,
@@ -69,7 +70,49 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 }
 
 pub(crate) struct AppState {
-    pub pending_files: Mutex<Vec<String>>,
+    pub pending_files: Mutex<Vec<PendingFile>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PendingFile {
+    pub path: String,
+    pub schema: Option<String>,
+}
+
+fn parse_cli_args(
+    args: impl IntoIterator<Item = String>,
+    cwd: &std::path::Path,
+) -> Vec<PendingFile> {
+    let mut files = Vec::new();
+    let mut schema = None;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == "--schema" {
+            schema = args.next();
+        } else if let Some(value) = arg.strip_prefix("--schema=") {
+            schema = Some(value.to_string());
+        } else if !arg.starts_with('-') && is_supported_file(&arg) {
+            files.push(resolve_cli_reference(&arg, cwd));
+        }
+    }
+    let schema = schema.map(|s| resolve_cli_reference(&s, cwd));
+    files
+        .into_iter()
+        .map(|path| PendingFile {
+            path,
+            schema: schema.clone(),
+        })
+        .collect()
+}
+
+// A relative path on the command line means "relative to where the command ran", which
+// only the launching process knows, so it is made absolute here. URLs pass through.
+fn resolve_cli_reference(reference: &str, cwd: &std::path::Path) -> String {
+    if reference.contains("://") || std::path::Path::new(reference).is_absolute() {
+        return reference.to_string();
+    }
+    cwd.join(reference).to_string_lossy().into_owned()
 }
 
 const SUPPORTED_EXTENSIONS: &[&str] = &["json", "jsonc", "json5", "geojson", "jsonl", "ndjson"];
@@ -96,7 +139,11 @@ fn emit_file_open(app: &AppHandle, paths: Vec<String>) {
 
     if let Some(state) = app.try_state::<AppState>() {
         if let Ok(mut pending) = state.pending_files.lock() {
-            pending.extend(supported_paths);
+            pending.extend(
+                supported_paths
+                    .into_iter()
+                    .map(|path| PendingFile { path, schema: None }),
+            );
         }
     }
 
@@ -107,10 +154,10 @@ fn emit_file_open(app: &AppHandle, paths: Vec<String>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let cli_files: Vec<String> = std::env::args()
-        .skip(1)
-        .filter(|arg| !arg.starts_with('-') && is_supported_file(arg))
-        .collect();
+    let cli_files = parse_cli_args(
+        std::env::args().skip(1),
+        &std::env::current_dir().unwrap_or_default(),
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -412,7 +459,7 @@ fn build_menu(
 
 #[tauri::command]
 #[specta::specta]
-fn drain_pending_files(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+fn drain_pending_files(state: tauri::State<'_, AppState>) -> Result<Vec<PendingFile>, String> {
     let mut pending = state.pending_files.lock().map_err(|e| e.to_string())?;
     Ok(std::mem::take(&mut *pending))
 }
@@ -448,5 +495,52 @@ mod bindings_export {
                 "../src/lib/ipc/bindings.ts",
             )
             .expect("failed to export typescript bindings");
+    }
+}
+
+#[cfg(test)]
+mod cli_args {
+    use super::{parse_cli_args, PendingFile};
+    use std::path::Path;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn schema_flag_attaches_to_files_and_is_not_opened_itself() {
+        let cwd = Path::new("/work");
+        let got = parse_cli_args(
+            args(&["config.json", "--schema", "./config.schema.json"]),
+            cwd,
+        );
+        assert_eq!(
+            got,
+            vec![PendingFile {
+                path: "/work/config.json".into(),
+                schema: Some("/work/./config.schema.json".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn schema_equals_form_urls_and_absolute_paths_pass_through() {
+        let cwd = Path::new("/work");
+        let url = parse_cli_args(args(&["--schema=https://x.dev/s.json", "a.json"]), cwd);
+        assert_eq!(url[0].schema.as_deref(), Some("https://x.dev/s.json"));
+        let abs = parse_cli_args(args(&["a.json", "--schema", "/etc/s.json"]), cwd);
+        assert_eq!(abs[0].schema.as_deref(), Some("/etc/s.json"));
+    }
+
+    #[test]
+    fn files_without_a_schema_flag_and_unknown_flags() {
+        let got = parse_cli_args(args(&["--verbose", "a.json", "notes.txt"]), Path::new("/w"));
+        assert_eq!(
+            got,
+            vec![PendingFile {
+                path: "/w/a.json".into(),
+                schema: None,
+            }]
+        );
     }
 }

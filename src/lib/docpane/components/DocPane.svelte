@@ -42,6 +42,7 @@
 	import { DocumentSession } from '../state/document-session.svelte';
 	import type { DocPaneActions } from '../logic/doc-actions';
 	import { schemaStore } from '$lib/panels/state/schema-store.svelte';
+	import { autoloadSchema } from '$lib/panels/state/schema-autoload';
 	import { commandRegistry } from '$lib/palette/state/command-store.svelte';
 	import type { DocStatus } from '$lib/shell/logic/status';
 	import EmptyState from '$lib/shell/components/EmptyState.svelte';
@@ -73,6 +74,8 @@
 		confirmLargeFile?: (path: string) => Promise<boolean>;
 
 		confirmCommentLoss?: (name: string) => Promise<'save' | 'saveAs' | 'cancel'>;
+
+		confirmSchemaFetch?: (host: string) => Promise<boolean>;
 	}
 
 	let {
@@ -88,6 +91,7 @@
 		isHandleAlive = () => true,
 		confirmLargeFile,
 		confirmCommentLoss,
+		confirmSchemaFetch = () => Promise.resolve(false),
 	}: Props = $props();
 
 	function tabLabelFor(name: string | null): string {
@@ -315,8 +319,20 @@
 		const p = pendingOpen;
 		if (!p) return;
 		void (async () => {
-			await session.loadFromSource(p);
+			const opened = await session.loadFromSource(p);
 			onOpened();
+			const s = session.summary;
+			if (!opened || !session.handle || !s) return;
+			await autoloadSchema(
+				{
+					tabId,
+					handle: session.handle,
+					version: s.version,
+					path: s.sourcePath,
+					rootIsObject: s.rootKind === 'object',
+				},
+				confirmSchemaFetch,
+			);
 		})();
 	});
 

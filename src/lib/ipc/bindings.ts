@@ -39,6 +39,7 @@ export const commands = {
 	docReplace: (handle: DocHandle, query: string, replacement: string, caseSensitive: boolean) => __TAURI_INVOKE<ReplaceResult>("doc_replace", { handle, query, replacement, caseSensitive }),
 	docRepairText: (text: string) => __TAURI_INVOKE<RepairResult>("doc_repair_text", { text }),
 	docValidateSchema: (handle: DocHandle, schema: string) => __TAURI_INVOKE<SchemaValidationResult>("doc_validate_schema", { handle, schema }),
+	readSchemaFile: (path: string) => __TAURI_INVOKE<string>("read_schema_file", { path }),
 	docGenerateTypes: (handle: DocHandle, lang: TypegenLang, typeName: string) => __TAURI_INVOKE<string>("doc_generate_types", { handle, lang, typeName }),
 	docDetectAndConvert: (text: string) => __TAURI_INVOKE<DetectResult>("doc_detect_and_convert", { text }),
 	docDiagnose: (text: string) => __TAURI_INVOKE<Diagnosis>("doc_diagnose", { text }),
@@ -52,7 +53,7 @@ export const commands = {
 	docExportPreview: (handle: DocHandle, format: ExportFormat, maxChars: number) => __TAURI_INVOKE<ExportPreview>("doc_export_preview", { handle, format, maxChars }),
 	docExportToFile: (handle: DocHandle, format: ExportFormat, path: string) => __TAURI_INVOKE<null>("doc_export_to_file", { handle, format, path }),
 	refreshRecentFiles: (items: RecentFile[]) => __TAURI_INVOKE<null>("refresh_recent_files", { items }),
-	drainPendingFiles: () => __TAURI_INVOKE<string[]>("drain_pending_files"),
+	drainPendingFiles: () => __TAURI_INVOKE<PendingFile[]>("drain_pending_files"),
 };
 
 /* Constants */
@@ -238,6 +239,11 @@ export type OpenSource = { kind: "file"; path: string } | { kind: "text"; text: 
 export type Path = PathSegment[];
 
 export type PathSegment = string | number;
+
+export type PendingFile = {
+	path: string,
+	schema: string | null,
+};
 
 export type RecentFile = {
 	path: string,

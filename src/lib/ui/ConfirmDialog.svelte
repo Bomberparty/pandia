@@ -6,7 +6,7 @@
 		title: string;
 		message: string;
 		primaryLabel: string;
-		secondaryLabel: string;
+		secondaryLabel?: string;
 		cancelLabel?: string;
 		dangerPrimary?: boolean;
 		onPick: (choice: ConfirmChoice) => void;
@@ -38,7 +38,9 @@
 			<button class="btn" onclick={() => onPick('cancel')}
 				>{cancelLabel}<span class="hint">esc</span></button
 			>
-			<button class="btn" onclick={() => onPick('secondary')}>{secondaryLabel}</button>
+			{#if secondaryLabel}
+				<button class="btn" onclick={() => onPick('secondary')}>{secondaryLabel}</button>
+			{/if}
 			<button
 				bind:this={primaryBtn}
 				class="btn btn-primary"

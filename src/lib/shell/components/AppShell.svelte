@@ -33,7 +33,8 @@
 	import { TabStore, MAX_TABS } from '$lib/shell/state/tab-store.svelte';
 	import { sidebarPrefs } from '../state/sidebar-prefs.svelte';
 	import { ipc } from '$lib/ipc/client';
-	import type { BackupRecord, Path } from '$lib/ipc/bindings';
+	import type { BackupRecord, Path, PendingFile } from '$lib/ipc/bindings';
+	import { rememberCliSchema } from '$lib/panels/state/schema-autoload';
 	import type { CompareTarget } from '$lib/views/compare/logic/compare-target';
 	import { PaneCommandBus } from '$lib/shell/state/pane-bus';
 	import { ConfirmController } from '$lib/ui/confirm.svelte';
@@ -79,6 +80,16 @@
 			dangerPrimary: true,
 		});
 		return choice === 'primary' ? 'save' : choice === 'secondary' ? 'saveAs' : 'cancel';
+	}
+
+	async function confirmSchemaFetch(host: string): Promise<boolean> {
+		const choice = await confirm.ask({
+			title: 'load schema from the internet?',
+			message: `This document's $schema points to ${host}. Loading it downloads the schema from that server.`,
+			primaryLabel: 'load schema',
+			cancelLabel: "don't load",
+		});
+		return choice === 'primary';
 	}
 
 	async function requestCloseTab(id: string): Promise<boolean> {
@@ -436,14 +447,15 @@
 	});
 
 	async function drainPendingFiles() {
-		let paths: string[] = [];
+		let pending: PendingFile[] = [];
 		try {
-			paths = await ipc.drainPendingFiles();
+			pending = await ipc.drainPendingFiles();
 		} catch {
 			return;
 		}
-		for (const path of paths) {
+		for (const { path, schema } of pending) {
 			if (!(await maybeConfirmLargeFile(path))) continue;
+			if (schema) rememberCliSchema(path, schema);
 			const ok = tabStore.openInTab({ kind: 'file', path });
 			if (!ok) break;
 		}
@@ -568,6 +580,7 @@
 						isHandleAlive={(h) => Object.values(tabStore.contexts).some((c) => c?.handle === h)}
 						confirmLargeFile={maybeConfirmLargeFile}
 						{confirmCommentLoss}
+						{confirmSchemaFetch}
 						{paneBus}
 					/>
 				</div>

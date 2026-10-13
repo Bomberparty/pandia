@@ -19,7 +19,7 @@ use crate::doc::search::{SearchHit, SearchOptions};
 use crate::doc::store::DocStore;
 use crate::doc::typegen::TypegenLang;
 use crate::doc::types::{
-    ColumnSchema, DocError, DocHandle, DocResult, ErrorKind, NodeView, Path, WireError,
+    ColumnSchema, DocError, DocHandle, DocResult, ErrorKind, FileOp, NodeView, Path, WireError,
 };
 use crate::doc::wire::LosslessText;
 use parking_lot::RwLock;
@@ -978,6 +978,16 @@ pub async fn doc_validate_schema(
 ) -> Result<SchemaValidationResult, WireError> {
     let store = state.inner().clone();
     run_blocking(move || doc_validate_schema_inner(&store, handle, schema)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn read_schema_file(path: String) -> Result<String, WireError> {
+    run_blocking(move || {
+        std::fs::read_to_string(&path)
+            .map_err(|e| DocError::file(FileOp::Open, std::path::Path::new(&path), e))
+    })
+    .await
 }
 
 #[tauri::command]

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { ipc } from '$lib/ipc/client';
-	import { describeError } from '$lib/ipc/error-copy';
 	import type { DocHandle, Path } from '$lib/ipc/bindings';
 	import { schemaStore } from './state/schema-store.svelte';
 	import { hasSchemaKeywords } from './schema-keywords';
@@ -31,7 +29,6 @@
 	});
 
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-	let seq = 0;
 
 	const state = $derived(schemaStore.get(tabId));
 
@@ -62,18 +59,7 @@
 
 	async function runValidate() {
 		if (!context) return;
-		const text = schemaStore.get(tabId).text.trim();
-		if (!text) return;
-		const mySeq = ++seq;
-		const versionAtValidate = context.version;
-		try {
-			const result = await ipc.docValidateSchema(context.handle, text);
-			if (mySeq !== seq) return; // newer request started
-			schemaStore.setResult(tabId, result, null, versionAtValidate);
-		} catch (e) {
-			if (mySeq !== seq) return;
-			schemaStore.setResult(tabId, null, describeError(e), null);
-		}
+		await schemaStore.validate(tabId, context.handle, context.version);
 	}
 
 	function onValidateNow() {
@@ -116,6 +102,17 @@
 
 	const manual = $derived(behaviorPrefs.schemaDebounceMs === SCHEMA_DEBOUNCE_MANUAL);
 
+	const schemaKeyRejected = $derived(
+		state.origin?.from === 'document' &&
+			(state.result?.errors.some(
+				(e) =>
+					e.instancePath === '' &&
+					/\/(additional|unevaluated)Properties$/.test(e.schemaPath) &&
+					e.message.includes("'$schema'"),
+			) ??
+				false),
+	);
+
 	const statusText = $derived.by(() => {
 		if (!context) return 'no document in this tab';
 		if (state.busy) return 'validating…';
@@ -145,6 +142,22 @@
 		{:else}<span class="status-dot none"></span>{/if}
 		<span class="status-text">{statusText}</span>
 	</div>
+
+	{#if state.origin}
+		<div class="origin dim text-xs">
+			<div>from {state.origin.from === 'cli' ? '--schema' : '$schema'} · {state.origin.ref}</div>
+			{#if state.origin.ignoredDocRef}
+				<div>the document's $schema ({state.origin.ignoredDocRef}) is not used</div>
+			{/if}
+		</div>
+	{/if}
+
+	{#if schemaKeyRejected}
+		<div class="notice notice-warn text-xs">
+			This schema doesn't allow the document's <code>$schema</code> key. Add
+			<code>{'"$schema": { "type": "string" }'}</code> to its <code>properties</code>.
+		</div>
+	{/if}
 
 	{#if noConstraints}
 		<div class="warn notice notice-warn text-xs">
@@ -218,6 +231,9 @@
 		text-transform: uppercase;
 		letter-spacing: var(--label-tracking);
 		color: var(--text-dim);
+	}
+	.origin {
+		overflow-wrap: anywhere;
 	}
 	.status[data-kind='ok'] .status-text {
 		color: var(--success);

@@ -81,7 +81,7 @@ One click, **ten targets**:
 
 ### Validate against schemas
 
-Inline JSON Schema validation against **draft-07** and **2020-12**. Debounce is user-tunable: immediate, 250 ms, 500 ms, 1 s, 2 s, or manual.
+Inline JSON Schema validation against **draft-07** and **2020-12**. Debounce is user-tunable: immediate, 250 ms, 500 ms, 1 s, 2 s, or manual. Load a schema automatically with `--schema <path|https-url>` or a document's top-level `$schema`; remote schemas from a document ask before downloading.
 
 ### Privacy-first by design
 

@@ -60,6 +60,25 @@
 	</section>
 
 	<section class="field">
+		<div class="field-label">schemas over http</div>
+		<div class="field-control">
+			<button
+				class="switch"
+				role="switch"
+				aria-checked={behaviorPrefs.allowHttpSchemas}
+				onclick={() => behaviorPrefs.setAllowHttpSchemas(!behaviorPrefs.allowHttpSchemas)}
+			>
+				<span class="switch-knob"></span>
+				<span class="switch-text">{behaviorPrefs.allowHttpSchemas ? 'on' : 'off'}</span>
+			</button>
+			<div class="text-sm dim">
+				Allow a schema from <code>--schema</code> or a document's <code>$schema</code> to load from an
+				http:// URL. Off keeps remote schemas to https:// only.
+			</div>
+		</div>
+	</section>
+
+	<section class="field">
 		<div class="field-label">restore tabs on launch</div>
 		<div class="field-control">
 			<button
