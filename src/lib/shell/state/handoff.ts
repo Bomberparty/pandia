@@ -1,5 +1,5 @@
 import { ipc } from '$lib/ipc/client';
-import { schemaStore } from '$lib/panels/state/schema-store.svelte';
+import { schemaSessions } from '$lib/panels/state/schema-store.svelte';
 import type { DocHandle, PendingFile, TabReport } from '$lib/ipc/bindings';
 
 export interface HandoffInstructions {
@@ -13,6 +13,7 @@ export class Handoff {
 	private problem: string | null = null;
 	private wasSaved = false;
 	private settled = false;
+	private settling: Promise<void> | null = null;
 
 	constructor(private readonly launch: PendingFile) {
 		this.instructions =
@@ -63,12 +64,23 @@ export class Handoff {
 		this.wasSaved = true;
 	}
 
-	async settle(tabId: string): Promise<void> {
-		if (this.settled) return;
-		const { result, error } = schemaStore.get(tabId);
+	// The tab's document must still be open: an unchecked edit is checked before reporting.
+	settle(tabId: string): Promise<void> {
+		this.settling ??= this.report(tabId);
+		return this.settling;
+	}
+
+	abandon(problem: string): Promise<void> {
+		this.settling ??= this.finish({ ...this.baseReport(), problem });
+		return this.settling;
+	}
+
+	private async report(tabId: string): Promise<void> {
+		const verdict = (await schemaSessions.existing(tabId)?.settleVerdict()) ?? { kind: 'none' };
+		const result = verdict.kind === 'checked' ? verdict.result : null;
 		const problem =
 			this.problem ??
-			error ??
+			(verdict.kind === 'problem' ? verdict.message : null) ??
 			(this.wasOpened ? null : 'The tab closed before the file finished opening.');
 		await this.finish({
 			...this.baseReport(),
@@ -79,11 +91,6 @@ export class Handoff {
 			errors: (result?.errors ?? []).map((e) => ({ pointer: e.instancePath, message: e.message })),
 			problem,
 		});
-	}
-
-	async abandon(problem: string): Promise<void> {
-		if (this.settled) return;
-		await this.finish({ ...this.baseReport(), problem });
 	}
 
 	private baseReport(): TabReport {

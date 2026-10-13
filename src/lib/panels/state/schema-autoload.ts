@@ -3,10 +3,10 @@ import { ipc } from '$lib/ipc/client';
 import { decodeLossless } from '$lib/ipc/wire';
 import { describeError } from '$lib/ipc/error-copy';
 import type { DocHandle } from '$lib/ipc/bindings';
-import { behaviorPrefs, SCHEMA_DEBOUNCE_MANUAL } from '$lib/settings/state/behavior-prefs.svelte';
+import { behaviorPrefs } from '$lib/settings/state/behavior-prefs.svelte';
 import { URL_FETCH_TIMEOUT_MS } from '$lib/shell/logic/url-fetch';
 import { planSchema, type SchemaFrom, type SchemaTarget } from '../schema-ref';
-import { schemaStore, type SchemaOrigin } from './schema-store.svelte';
+import { schemaSessions, type SchemaOrigin } from './schema-store.svelte';
 
 const HTTP_BLOCKED =
 	'Pandia only loads schemas over HTTPS. To load http:// URLs, turn on “Allow schemas over HTTP” in Settings → Behavior.';
@@ -36,24 +36,16 @@ export async function autoloadSchema(
 		ref: plan.ref,
 		ignoredDocRef: plan.kind === 'load' ? plan.ignoredDocRef : null,
 	};
-	const fail = (message: string) => {
-		schemaStore.setText(doc.tabId, '', origin);
-		schemaStore.setResult(doc.tabId, null, message, null);
-	};
-	if (plan.kind === 'invalid') return fail(plan.message);
+	const schema = schemaSessions.for(doc.tabId);
+	schema.documentChanged(doc.handle, doc.version);
+	if (plan.kind === 'invalid') return schema.fail(plan.message, origin);
 	let text: string | null;
 	try {
 		text = await readTarget(plan.target, plan.from, confirmRemote);
 	} catch (e) {
-		return fail(describeError(e));
+		return schema.fail(describeError(e), origin);
 	}
-	schemaStore.setText(doc.tabId, text ?? '', origin);
-	if (text === null) return;
-
-	await behaviorPrefs.init();
-	if (behaviorPrefs.schemaDebounceMs !== SCHEMA_DEBOUNCE_MANUAL) {
-		await schemaStore.validate(doc.tabId, doc.handle, doc.version);
-	}
+	await schema.load(text ?? '', origin);
 }
 
 async function readDocSchemaRef(handle: DocHandle): Promise<string | null> {

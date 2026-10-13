@@ -1,14 +1,10 @@
 <script lang="ts">
 	import type { DocContext } from '$lib/shell/state/workspace.svelte';
 	import type { Path } from '$lib/ipc/bindings';
-	import { schemaStore } from './state/schema-store.svelte';
+	import { lastResult, schemaSessions } from './state/schema-store.svelte';
+	import { behaviorPrefs, SCHEMA_DEBOUNCE_MANUAL } from '$lib/settings/state/behavior-prefs.svelte';
 	import { hasSchemaKeywords } from './schema-keywords';
 	import { parseJsonPointer } from '$lib/util/path';
-	import {
-		behaviorPrefs,
-		SCHEMA_DEBOUNCE_IMMEDIATE,
-		SCHEMA_DEBOUNCE_MANUAL,
-	} from '$lib/settings/state/behavior-prefs.svelte';
 
 	interface Props {
 		tabId: string;
@@ -19,87 +15,33 @@
 
 	let { tabId, context, onJump }: Props = $props();
 
-	$effect(() => {
-		void behaviorPrefs.init();
-	});
-
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-	const state = $derived(schemaStore.get(tabId));
+	const schema = $derived(schemaSessions.for(tabId));
+	const result = $derived(lastResult(schema.verdict));
+	const busy = $derived(schema.verdict.kind === 'checking');
+	const problem = $derived(schema.verdict.kind === 'problem' ? schema.verdict.message : null);
+	const manual = $derived(behaviorPrefs.schemaDebounceMs === SCHEMA_DEBOUNCE_MANUAL);
 
 	function onSchemaInput(e: Event) {
-		const t = (e.target as HTMLTextAreaElement).value;
-		schemaStore.setText(tabId, t);
-		scheduleValidate();
-	}
-
-	function scheduleValidate() {
-		if (debounceTimer != null) clearTimeout(debounceTimer);
-		const text = schemaStore.get(tabId).text.trim();
-		if (!text || !context) {
-			schemaStore.setResult(tabId, null, null, null);
-			return;
-		}
-		const ms = behaviorPrefs.schemaDebounceMs;
-		if (ms === SCHEMA_DEBOUNCE_MANUAL) return;
-		schemaStore.setBusy(tabId, true);
-		if (ms === SCHEMA_DEBOUNCE_IMMEDIATE) {
-			void runValidate();
-			return;
-		}
-		debounceTimer = setTimeout(() => {
-			void runValidate();
-		}, ms);
-	}
-
-	async function runValidate() {
-		if (!context) return;
-		await schemaStore.validate(tabId, context.handle, context.version);
+		schema.setText((e.target as HTMLTextAreaElement).value);
 	}
 
 	function onValidateNow() {
-		if (debounceTimer != null) {
-			clearTimeout(debounceTimer);
-			debounceTimer = null;
-		}
-		void runValidate();
+		void schema.validateNow();
 	}
 
 	function onClearSchema() {
-		schemaStore.setText(tabId, '');
-		schemaStore.setResult(tabId, null, null, null);
-		if (debounceTimer != null) {
-			clearTimeout(debounceTimer);
-			debounceTimer = null;
-		}
+		schema.clear();
 	}
 
-	let lastVersion: number | null = null;
-	$effect(() => {
-		const v = context?.version ?? null;
-		if (v == null) {
-			lastVersion = null;
-			return;
-		}
-		if (lastVersion !== v) {
-			lastVersion = v;
-			if (state.text.trim() && state.result !== null) {
-				scheduleValidate();
-			}
-		}
-	});
-
 	const noConstraints = $derived.by(() => {
-		if (!state.result || !state.result.valid) return false;
-		const text = state.text.trim();
+		if (!result || !result.valid) return false;
+		const text = schema.text.trim();
 		return text.length > 0 && !hasSchemaKeywords(text);
 	});
 
-	const manual = $derived(behaviorPrefs.schemaDebounceMs === SCHEMA_DEBOUNCE_MANUAL);
-
 	const schemaKeyRejected = $derived(
-		state.origin?.from === 'document' &&
-			(state.result?.errors.some(
+		schema.origin?.from === 'document' &&
+			(result?.errors.some(
 				(e) =>
 					e.instancePath === '' &&
 					/\/(additional|unevaluated)Properties$/.test(e.schemaPath) &&
@@ -110,22 +52,23 @@
 
 	const statusText = $derived.by(() => {
 		if (!context) return 'no document in this tab';
-		if (state.busy) return 'validating…';
-		if (state.error) return state.error;
-		if (state.result == null) {
-			if (!state.text.trim()) return 'paste a schema below';
-			return manual ? 'not validated · press Validate' : '';
+		if (busy) return 'validating…';
+		if (problem) return problem;
+		if (!schema.text.trim()) return 'paste a schema below';
+		if (schema.verdict.kind === 'stale') {
+			return result ? 'out of date · press Validate' : 'not validated · press Validate';
 		}
-		if (state.result.valid) return 'valid · 0 errors';
-		const n = state.result.errorCount;
-		return `invalid · ${n} error${n === 1 ? '' : 's'}${state.result.truncated ? ' (showing 500)' : ''}`;
+		if (result == null) return '';
+		if (result.valid) return 'valid · 0 errors';
+		const n = result.errorCount;
+		return `invalid · ${n} error${n === 1 ? '' : 's'}${result.truncated ? ' (showing 500)' : ''}`;
 	});
 
 	const statusKind = $derived.by(() => {
-		if (state.busy) return 'busy';
-		if (state.error) return 'err';
-		if (!state.result) return 'none';
-		return state.result.valid ? 'ok' : 'err';
+		if (busy) return 'busy';
+		if (problem) return 'err';
+		if (!result || schema.verdict.kind === 'stale') return 'none';
+		return result.valid ? 'ok' : 'err';
 	});
 </script>
 
@@ -138,11 +81,11 @@
 		<span class="status-text">{statusText}</span>
 	</div>
 
-	{#if state.origin}
+	{#if schema.origin}
 		<div class="origin dim text-xs">
-			<div>from {state.origin.from === 'cli' ? '--schema' : '$schema'} · {state.origin.ref}</div>
-			{#if state.origin.ignoredDocRef}
-				<div>the document's $schema ({state.origin.ignoredDocRef}) is not used</div>
+			<div>from {schema.origin.from === 'cli' ? '--schema' : '$schema'} · {schema.origin.ref}</div>
+			{#if schema.origin.ignoredDocRef}
+				<div>the document's $schema ({schema.origin.ignoredDocRef}) is not used</div>
 			{/if}
 		</div>
 	{/if}
@@ -168,19 +111,19 @@
 			class="btn"
 			class:btn-primary={manual}
 			onclick={onValidateNow}
-			disabled={!context || !state.text.trim() || state.busy}
+			disabled={!context || !schema.text.trim() || busy}
 			title="Validate now">Validate</button
 		>
 		<button
 			class="btn btn-ghost"
 			onclick={onClearSchema}
-			disabled={!state.text}
+			disabled={!schema.text}
 			title="Clear schema">Clear</button
 		>
 	</div>
 
 	<textarea
-		value={state.text}
+		value={schema.text}
 		oninput={onSchemaInput}
 		placeholder={'{\n  "$schema": "https://json-schema.org/draft/2020-12/schema",\n  "type": "object",\n  "required": ["id"],\n  "properties": {\n    "id": {"type": "string"}\n  }\n}'}
 		spellcheck="false"
@@ -188,14 +131,14 @@
 		aria-label="json schema"
 	></textarea>
 
-	{#if state.result && !state.result.valid}
+	{#if result && !result.valid}
 		<div class="errs">
 			<div class="errs-head text-xs">
-				{state.result.errorCount} error{state.result.errorCount === 1 ? '' : 's'}
-				{#if state.result.truncated}<span class="dim">· showing 500</span>{/if}
+				{result.errorCount} error{result.errorCount === 1 ? '' : 's'}
+				{#if result.truncated}<span class="dim">· showing 500</span>{/if}
 			</div>
 			<ul class="errs-list">
-				{#each state.result.errors as err, i (i)}
+				{#each result.errors as err, i (i)}
 					<li>
 						<button
 							type="button"

@@ -1,7 +1,7 @@
 import { untrack } from 'svelte';
 import { stat } from '@tauri-apps/plugin-fs';
 import { ipc } from '$lib/ipc/client';
-import { schemaStore } from '$lib/panels/state/schema-store.svelte';
+import { schemaSessions } from '$lib/panels/state/schema-store.svelte';
 import { behaviorPrefs } from '$lib/settings/state/behavior-prefs.svelte';
 import type { DocStatus } from '$lib/shell/logic/status';
 import { basename } from '$lib/util/path';
@@ -145,8 +145,10 @@ export class Workspace {
 	};
 
 	close = async (id: string): Promise<boolean> => {
-		if (!this.tabs.some((t) => t.id === id)) return false;
+		const tab = this.tabs.find((t) => t.id === id);
+		if (!tab) return false;
 		if (!(await this.resolveUnsaved([id]))) return false;
+		await tab.handoff?.settle(id);
 		this.remove(id);
 		return true;
 	};
@@ -263,8 +265,7 @@ export class Workspace {
 	private remove(id: string): void {
 		const idx = this.tabs.findIndex((t) => t.id === id);
 		if (idx < 0) return;
-		void this.tabs[idx]?.handoff?.settle(id);
-		schemaStore.clear(id);
+		schemaSessions.clear(id);
 		const { [id]: _, ...views } = this.views;
 		this.views = views;
 		delete this.slots[id];

@@ -3,7 +3,7 @@ import { fetch } from '@tauri-apps/plugin-http';
 import { ipc } from '$lib/ipc/client';
 import { behaviorPrefs } from '$lib/settings/state/behavior-prefs.svelte';
 import { autoloadSchema } from './schema-autoload';
-import { schemaStore } from './schema-store.svelte';
+import { schemaSessions } from './schema-store.svelte';
 
 vi.mock('$lib/ipc/client', () => ({
 	ipc: { docGetValue: vi.fn(), readSchemaFile: vi.fn(), docValidateSchema: vi.fn() },
@@ -11,6 +11,7 @@ vi.mock('$lib/ipc/client', () => ({
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: vi.fn() }));
 vi.mock('$lib/settings/state/behavior-prefs.svelte', () => ({
 	SCHEMA_DEBOUNCE_MANUAL: -1,
+	SCHEMA_DEBOUNCE_IMMEDIATE: 0,
 	behaviorPrefs: { init: async () => {}, schemaDebounceMs: 500, allowHttpSchemas: false },
 }));
 
@@ -41,9 +42,9 @@ describe('autoloadSchema', () => {
 
 		await autoloadSchema(doc('t1', '/w/a.json'), confirm);
 		expect(confirm).toHaveBeenCalledWith('x.dev');
-		expect(schemaStore.get('t1')).toMatchObject({
+		expect(schemaSessions.for('t1')).toMatchObject({
 			text: '{"type":"object"}',
-			result: VALID,
+			verdict: { kind: 'checked', result: VALID },
 			origin: { from: 'document', ref: 'https://x.dev/s.json' },
 		});
 
@@ -55,7 +56,11 @@ describe('autoloadSchema', () => {
 		docSchema('https://y.dev/s.json');
 		await autoloadSchema(doc('t3', '/w/a.json'), async () => false);
 		expect(fetch).not.toHaveBeenCalled();
-		expect(schemaStore.get('t3')).toMatchObject({ text: '', origin: { from: 'document' } });
+		expect(schemaSessions.for('t3')).toMatchObject({
+			text: '',
+			verdict: { kind: 'none' },
+			origin: { from: 'document' },
+		});
 	});
 
 	it('refuses http unless the setting allows it, without asking', async () => {
@@ -64,7 +69,10 @@ describe('autoloadSchema', () => {
 		await autoloadSchema(doc('t4', '/w/a.json'), confirm);
 		expect(confirm).not.toHaveBeenCalled();
 		expect(fetch).not.toHaveBeenCalled();
-		expect(schemaStore.get('t4').error).toMatch(/only loads schemas over HTTPS/);
+		expect(schemaSessions.for('t4').verdict).toMatchObject({
+			kind: 'problem',
+			message: expect.stringMatching(/only loads schemas over HTTPS/),
+		});
 	});
 
 	it('uses --schema without asking and notes the document reference it replaced', async () => {
@@ -74,7 +82,7 @@ describe('autoloadSchema', () => {
 		await autoloadSchema(doc('t5', '/w/c.json', '/w/cli.schema.json'), confirm);
 		expect(confirm).not.toHaveBeenCalled();
 		expect(ipc.readSchemaFile).toHaveBeenCalledWith('/w/cli.schema.json');
-		expect(schemaStore.get('t5').origin).toEqual({
+		expect(schemaSessions.for('t5').origin).toEqual({
 			from: 'cli',
 			ref: '/w/cli.schema.json',
 			ignoredDocRef: './other.json',
@@ -85,9 +93,9 @@ describe('autoloadSchema', () => {
 		docSchema('./missing.json');
 		vi.mocked(ipc.readSchemaFile).mockRejectedValue(new Error('Could not open missing.json.'));
 		await autoloadSchema(doc('t6', '/w/a.json'), async () => true);
-		expect(schemaStore.get('t6')).toMatchObject({
+		expect(schemaSessions.for('t6')).toMatchObject({
 			text: '',
-			error: 'Could not open missing.json.',
+			verdict: { kind: 'problem', message: 'Could not open missing.json.' },
 		});
 		expect(ipc.docValidateSchema).not.toHaveBeenCalled();
 	});

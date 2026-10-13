@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { stat } from '@tauri-apps/plugin-fs';
 import { ipc } from '$lib/ipc/client';
-import { schemaStore } from '$lib/panels/state/schema-store.svelte';
+import { schemaSessions } from '$lib/panels/state/schema-store.svelte';
 import { behaviorPrefs } from '$lib/settings/state/behavior-prefs.svelte';
 import type { PendingFile } from '$lib/ipc/bindings';
 import type { DocStatus } from '$lib/shell/logic/status';
@@ -17,12 +17,16 @@ vi.mock('$lib/ipc/client', () => ({
 		cliDiscardPiped: vi.fn(async () => {}),
 		cliReply: vi.fn(async () => {}),
 		docBackupClear: vi.fn(async () => {}),
+		docValidateSchema: vi.fn(),
 	},
 }));
 vi.mock('@tauri-apps/plugin-fs', () => ({ stat: vi.fn(async () => ({ size: 10 })) }));
 vi.mock('$lib/settings/state/behavior-prefs.svelte', () => ({
+	SCHEMA_DEBOUNCE_MANUAL: -1,
+	SCHEMA_DEBOUNCE_IMMEDIATE: 0,
 	behaviorPrefs: {
 		init: async () => {},
+		schemaDebounceMs: 500,
 		warnLargeFileOpen: true,
 		autoSaveOnIdle: false,
 		restoreTabsOnLaunch: true,
@@ -238,7 +242,7 @@ describe('Workspace: closing a tab', () => {
 		expect(ws.tabs.map((t) => t.id)).toContain(id);
 	});
 
-	it('settles a hand-off before clearing the tab’s schema state, so the report keeps its verdict', async () => {
+	it('reports the final verdict while the tab is still open, then removes the tab', async () => {
 		const ws = new Workspace(prompts());
 		const handoff = waitingHandoff('/w/a.json', '/tmp/pandia-wait-2');
 		const outcome = (await ws.open({ kind: 'file', path: '/w/a.json' }, { handoff })) as {
@@ -247,20 +251,35 @@ describe('Workspace: closing a tab', () => {
 		const id = outcome.tabId;
 		pane(ws, id);
 		handoff.opened();
-		schemaStore.setResult(
-			id,
-			{ valid: false, errors: [], errorCount: 3, truncated: false },
-			null,
-			1,
-		);
+		const schema = schemaSessions.for(id);
+		schema.documentChanged('h' as never, 1);
+		vi.mocked(ipc.docValidateSchema).mockResolvedValueOnce({
+			valid: true,
+			errors: [],
+			errorCount: 0,
+			truncated: false,
+		});
+		await schema.load('{"type":"object"}', null);
+		schema.documentChanged('h' as never, 2);
+		vi.mocked(ipc.docValidateSchema).mockResolvedValueOnce({
+			valid: false,
+			errors: [],
+			errorCount: 3,
+			truncated: false,
+		});
+		let openWhileReporting = false;
+		vi.mocked(ipc.cliWaitDone).mockImplementationOnce(async () => {
+			openWhileReporting = ws.tabs.some((t) => t.id === id);
+		});
 
 		await ws.close(id);
-		await vi.waitFor(() => expect(ipc.cliWaitDone).toHaveBeenCalled());
 		expect(vi.mocked(ipc.cliWaitDone).mock.calls[0]?.[1]).toMatchObject({
 			valid: false,
 			errorCount: 3,
 		});
-		expect(schemaStore.get(id).result).toBeNull();
+		expect(openWhileReporting).toBe(true);
+		expect(ws.tabs.map((t) => t.id)).not.toContain(id);
+		expect(schemaSessions.existing(id)).toBeNull();
 	});
 
 	it('stops answering for a tab once it closes', async () => {

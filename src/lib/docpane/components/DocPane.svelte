@@ -35,7 +35,7 @@
 	import { handleDocMenuEvent } from '../logic/doc-menu-events';
 	import { DocumentSession } from '../state/document-session.svelte';
 	import type { DocPaneActions } from '../logic/doc-actions';
-	import { schemaStore } from '$lib/panels/state/schema-store.svelte';
+	import { lastResult, schemaSessions } from '$lib/panels/state/schema-store.svelte';
 	import { autoloadSchema } from '$lib/panels/state/schema-autoload';
 	import type { DocContext, TabSlot } from '$lib/shell/state/workspace.svelte';
 	import { commandRegistry } from '$lib/palette/state/command-store.svelte';
@@ -151,11 +151,18 @@
 		}
 	});
 
+	const schema = $derived(schemaSessions.for(tabId));
+
+	$effect(() => {
+		const handle = session.handle;
+		const version = session.summary?.version;
+		if (handle && version !== undefined) schema.documentChanged(handle, version);
+	});
+
 	const invalidMarks = $derived(
 		computeInvalidMarks({
-			result: schemaStore.get(tabId).result,
-			validatedVersion: schemaStore.get(tabId).validatedVersion,
-			liveVersion: session.summary?.version ?? null,
+			result: lastResult(schema.verdict),
+			stale: schema.verdict.kind === 'checking' || schema.verdict.kind === 'stale',
 			rows: tree.rows,
 		}),
 	);
@@ -248,7 +255,7 @@
 			validity: validityFromView({
 				viewMode: doc.viewMode,
 				codeValid,
-				schemaResult: schemaStore.get(tabId).result,
+				schemaResult: lastResult(schema.verdict),
 			}),
 			editing: edit.active,
 			dirty: doc.isDirty,

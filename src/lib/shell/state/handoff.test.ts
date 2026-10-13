@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipc } from '$lib/ipc/client';
-import { schemaStore } from '$lib/panels/state/schema-store.svelte';
-import type { PendingFile, TabReport } from '$lib/ipc/bindings';
+import { schemaSessions } from '$lib/panels/state/schema-store.svelte';
+import type { PendingFile, SchemaValidationResult, TabReport } from '$lib/ipc/bindings';
 import { Handoff } from './handoff';
 
 vi.mock('$lib/ipc/client', () => ({
@@ -9,8 +9,30 @@ vi.mock('$lib/ipc/client', () => ({
 		cliWaitDone: vi.fn(async () => {}),
 		cliDiscardPiped: vi.fn(async () => {}),
 		cliReply: vi.fn(async () => {}),
+		docValidateSchema: vi.fn(),
 	},
 }));
+vi.mock('$lib/settings/state/behavior-prefs.svelte', () => ({
+	SCHEMA_DEBOUNCE_MANUAL: -1,
+	SCHEMA_DEBOUNCE_IMMEDIATE: 0,
+	behaviorPrefs: { init: async () => {}, schemaDebounceMs: 500 },
+}));
+
+const VALID: SchemaValidationResult = { valid: true, errors: [], errorCount: 0, truncated: false };
+const INVALID: SchemaValidationResult = {
+	valid: false,
+	errors: [{ instancePath: '/retries', schemaPath: '/properties', message: 'not an integer' }],
+	errorCount: 1,
+	truncated: false,
+};
+
+async function checked(tabId: string, result: SchemaValidationResult) {
+	const schema = schemaSessions.for(tabId);
+	schema.documentChanged('h' as never, 1);
+	vi.mocked(ipc.docValidateSchema).mockResolvedValueOnce(result);
+	await schema.load('{"type":"object"}', null);
+	return schema;
+}
 
 function launch(extra: Partial<PendingFile>): PendingFile {
 	return {
@@ -58,11 +80,11 @@ describe('Handoff', () => {
 		expect(h.takeInstructions()).toBeNull();
 	});
 
-	it('owes its tab only while a report or a temp file is outstanding', () => {
+	it('owes its tab only while a report or a temp file is outstanding', async () => {
 		expect(new Handoff(launch({ schema: '/w/s.json' })).owes).toBe(false);
 		const waiting = new Handoff(launch({ wait: WAIT }));
 		expect(waiting.owes).toBe(true);
-		void waiting.settle('t0');
+		await waiting.settle('t0');
 		expect(waiting.owes).toBe(false);
 	});
 
@@ -77,19 +99,7 @@ describe('Handoff', () => {
 	});
 
 	it('reports schema errors as JSON Pointers, and a schema that failed to load', async () => {
-		schemaStore.setResult(
-			't2',
-			{
-				valid: false,
-				errors: [
-					{ instancePath: '/retries', schemaPath: '/properties', message: 'not an integer' },
-				],
-				errorCount: 1,
-				truncated: false,
-			},
-			null,
-			1,
-		);
+		await checked('t2', INVALID);
 		const invalid = new Handoff(launch({ wait: WAIT }));
 		invalid.opened();
 		await invalid.settle('t2');
@@ -102,13 +112,30 @@ describe('Handoff', () => {
 			}),
 		);
 
-		schemaStore.setResult('t3', null, "This schema can't be used.", null);
+		schemaSessions.for('t3').fail("This schema can't be used.", null);
 		const broken = new Handoff(launch({ wait: WAIT }));
 		broken.opened();
 		await broken.settle('t3');
 		expect(ipc.cliWaitDone).toHaveBeenLastCalledWith(
 			WAIT,
 			report({ problem: "This schema can't be used." }),
+		);
+	});
+
+	it('checks an edit made since the last check before reporting', async () => {
+		const schema = await checked('t8', VALID);
+		schema.documentChanged('h' as never, 2);
+		vi.mocked(ipc.docValidateSchema).mockResolvedValueOnce(INVALID);
+		const h = new Handoff(launch({ wait: WAIT }));
+		h.opened();
+		await h.settle('t8');
+		expect(ipc.cliWaitDone).toHaveBeenLastCalledWith(
+			WAIT,
+			report({
+				valid: false,
+				errorCount: 1,
+				errors: [{ pointer: '/retries', message: 'not an integer' }],
+			}),
 		);
 	});
 
