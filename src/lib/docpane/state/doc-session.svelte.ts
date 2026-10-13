@@ -45,8 +45,6 @@ export interface DocSessionDeps {
 
 	cancelBackupTimer: () => void;
 
-	confirmLargeFile?: (path: string) => Promise<boolean>;
-
 	confirmCommentLoss?: (name: string) => Promise<'save' | 'saveAs' | 'cancel'>;
 }
 
@@ -91,10 +89,6 @@ export class DocSessionController {
 	};
 
 	loadFromSource = async (source: OpenSource) => {
-		if (source.kind === 'file' && this.deps.confirmLargeFile) {
-			const proceed = await this.deps.confirmLargeFile(source.path);
-			if (!proceed) return false;
-		}
 		await this.deps.applyDefaultView(null);
 		const name =
 			source.kind === 'file'

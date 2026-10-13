@@ -74,8 +74,6 @@
 		paneBus?: PaneCommandBus | null;
 		isHandleAlive?: (h: DocHandle) => boolean;
 
-		confirmLargeFile?: (path: string) => Promise<boolean>;
-
 		confirmCommentLoss?: (name: string) => Promise<'save' | 'saveAs' | 'cancel'>;
 
 		confirmSchemaFetch?: (host: string) => Promise<boolean>;
@@ -92,7 +90,6 @@
 		onContextChange = () => {},
 		paneBus = null,
 		isHandleAlive = () => true,
-		confirmLargeFile,
 		confirmCommentLoss,
 		confirmSchemaFetch = () => Promise.resolve(false),
 	}: Props = $props();
@@ -139,7 +136,6 @@
 		isActive: () => isActive,
 		onOpenInNewTab: (source) => onOpenInNewTab(source),
 		isHandleAlive: (h) => isHandleAlive(h),
-		confirmLargeFile: (p) => (confirmLargeFile ? confirmLargeFile(p) : Promise.resolve(true)),
 		confirmCommentLoss: (n) =>
 			confirmCommentLoss ? confirmCommentLoss(n) : Promise.resolve('save' as const),
 		code: { api: () => codeApi, dirty: () => codeDirty },
@@ -514,6 +510,7 @@
 		<EmptyState
 			busy={doc.busy}
 			onOpenSource={session.loadFromSource}
+			onOpenFile={(path) => onOpenInNewTab({ kind: 'file', path })}
 			diagnosis={session.diagnosis}
 			onFixDiagnosis={(t) => void session.applyDiagnosisFix(t)}
 			onDismissDiagnosis={() => (session.diagnosis = null)}

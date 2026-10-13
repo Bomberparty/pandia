@@ -22,7 +22,6 @@ export interface DocumentSessionDeps {
 	isActive: () => boolean;
 	onOpenInNewTab: (source: OpenSource) => void;
 	isHandleAlive: (h: DocHandle) => boolean;
-	confirmLargeFile?: (path: string) => Promise<boolean>;
 	confirmCommentLoss?: (name: string) => Promise<'save' | 'saveAs' | 'cancel'>;
 	/** Code-view bridge — the CodeMirror buffer lives in the pane. */
 	code: {
@@ -130,8 +129,6 @@ export class DocumentSession {
 			cancelBackupTimer: () => {
 				if (this.backupTimer) clearTimeout(this.backupTimer);
 			},
-			confirmLargeFile: (p) =>
-				deps.confirmLargeFile ? deps.confirmLargeFile(p) : Promise.resolve(true),
 			confirmCommentLoss: (n) =>
 				deps.confirmCommentLoss ? deps.confirmCommentLoss(n) : Promise.resolve('save' as const),
 		});

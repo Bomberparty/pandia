@@ -33,7 +33,7 @@
 	import { TabStore, MAX_TABS } from '$lib/shell/state/tab-store.svelte';
 	import { sidebarPrefs } from '../state/sidebar-prefs.svelte';
 	import { ipc } from '$lib/ipc/client';
-	import type { BackupRecord, Path, PendingFile } from '$lib/ipc/bindings';
+	import type { BackupRecord, OpenSource, Path, PendingFile } from '$lib/ipc/bindings';
 	import { abandonCliLaunch, rememberCliLaunch, releaseCliTab } from '$lib/shell/state/cli-launch';
 	import type { CompareTarget } from '$lib/views/compare/logic/compare-target';
 	import { PaneCommandBus } from '$lib/shell/state/pane-bus';
@@ -69,6 +69,14 @@
 			cancelLabel: 'cancel',
 		});
 		return choice === 'primary';
+	}
+
+	async function openSource(
+		source: OpenSource,
+		opts: { focus?: boolean } = {},
+	): Promise<string | null> {
+		if (source.kind === 'file' && !(await maybeConfirmLargeFile(source.path))) return null;
+		return tabStore.openInTab(source, opts);
 	}
 
 	async function confirmCommentLoss(name: string): Promise<'save' | 'saveAs' | 'cancel'> {
@@ -437,7 +445,8 @@
 			if (anyContext || anyPending) return;
 			for (let i = 0; i < paths.length; i++) {
 				const path = paths[i];
-				if (!path) continue;
+				if (!path || !(await maybeConfirmLargeFile(path))) continue;
+				if (cancelled) return;
 				const ok = tabStore.openInTab({ kind: 'file', path }, { focus: i === 0 });
 				if (!ok) break;
 			}
@@ -588,10 +597,9 @@
 						onStatusChange={(status) => tabStore.setStatus(tab.id, status)}
 						pendingOpen={tabStore.pendingOpens[tab.id] ?? null}
 						onOpened={() => tabStore.clearPendingOpen(tab.id)}
-						onOpenInNewTab={tabStore.openInTab}
+						onOpenInNewTab={openSource}
 						onContextChange={(ctx) => tabStore.setContext(tab.id, ctx)}
 						isHandleAlive={(h) => Object.values(tabStore.contexts).some((c) => c?.handle === h)}
-						confirmLargeFile={maybeConfirmLargeFile}
 						{confirmCommentLoss}
 						{confirmSchemaFetch}
 						{paneBus}

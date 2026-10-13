@@ -14,12 +14,14 @@
 	interface Props {
 		busy: boolean;
 		onOpenSource: (source: OpenSource) => Promise<boolean>;
+		onOpenFile: (path: string) => void;
 		diagnosis: Diagnosis | null;
 		onFixDiagnosis: (text: string) => void;
 		onDismissDiagnosis: () => void;
 	}
 
-	let { busy, onOpenSource, diagnosis, onFixDiagnosis, onDismissDiagnosis }: Props = $props();
+	let { busy, onOpenSource, onOpenFile, diagnosis, onFixDiagnosis, onDismissDiagnosis }: Props =
+		$props();
 
 	let pasteText = $state('');
 	const detected = $derived(detectFormat(pasteText));
@@ -32,7 +34,7 @@
 			filters: JSON_OPEN_FILTERS,
 		});
 		if (typeof picked !== 'string') return;
-		onOpenSource({ kind: 'file', path: picked });
+		onOpenFile(picked);
 	}
 
 	async function openFromText(text: string, baseName: string) {
@@ -78,7 +80,7 @@
 	}
 
 	function onClickRecent(path: string) {
-		onOpenSource({ kind: 'file', path });
+		onOpenFile(path);
 	}
 </script>
 
