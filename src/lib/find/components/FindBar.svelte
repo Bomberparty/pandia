@@ -23,6 +23,8 @@
 		onReplaceChange: (v: string) => void;
 		onReplaceAll: () => void;
 		replaceStatus: string | null;
+		replaceOpen: boolean;
+		onToggleReplace: () => void;
 	}
 
 	let {
@@ -41,10 +43,9 @@
 		onReplaceChange,
 		onReplaceAll,
 		replaceStatus,
+		replaceOpen,
+		onToggleReplace,
 	}: Props = $props();
-
-	// svelte-ignore state_referenced_locally
-	let replaceOpen = $state(replaceValue.length > 0);
 
 	function onReplaceInput(e: Event) {
 		onReplaceChange((e.target as HTMLInputElement).value);
@@ -59,17 +60,13 @@
 			if (query) onReplaceAll();
 		}
 	}
-
-	function toggleReplace() {
-		replaceOpen = !replaceOpen;
-	}
 </script>
 
 {#if open}
 	<div class="find" role="dialog" aria-label="find and replace in document">
 		<button
 			class="expander"
-			onclick={toggleReplace}
+			onclick={onToggleReplace}
 			aria-expanded={replaceOpen}
 			aria-label={replaceOpen ? 'hide replace' : 'show replace'}
 			title={replaceOpen ? 'hide replace' : 'show replace'}

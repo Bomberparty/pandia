@@ -15,20 +15,23 @@ function keyCode(key: string): string {
 	return PUNCTUATION_CODES[key] ?? `Key${key}`;
 }
 
-const combo = (shift: boolean, code: string) => (shift ? 'Shift+' : '') + code;
+const HERE = SHORTCUTS.filter((s) => s.platform === 'all' || (s.platform === 'mac') === isMac);
+
+const combo = (alt: boolean, shift: boolean, code: string) =>
+	(alt ? 'Alt+' : '') + (shift ? 'Shift+' : '') + code;
 
 const COMMAND_BY_COMBO = new Map<string, string>(
-	SHORTCUTS.map((s) => [combo(s.shift, keyCode(s.key)), s.command]),
+	HERE.map((s) => [combo(s.alt, s.shift, keyCode(s.key)), s.command]),
 );
 
 const KEYS_BY_COMMAND = new Map<string, string>(
-	SHORTCUTS.map((s) => [s.command, `⌘${s.shift ? '⇧' : ''}${s.key}`]),
+	HERE.map((s) => [s.command, `⌘${s.alt ? '⌥' : ''}${s.shift ? '⇧' : ''}${s.key}`]),
 );
 
 export function matchShortcut(e: KeyboardEvent): string | null {
 	if (isMac) return null;
-	if (!e.ctrlKey || e.metaKey || e.altKey) return null;
-	return COMMAND_BY_COMBO.get(combo(e.shiftKey, e.code)) ?? null;
+	if (!e.ctrlKey || e.metaKey) return null;
+	return COMMAND_BY_COMBO.get(combo(e.altKey, e.shiftKey, e.code)) ?? null;
 }
 
 export function shortcutKeys(command: string): string | null {

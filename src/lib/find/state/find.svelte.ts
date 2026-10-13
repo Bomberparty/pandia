@@ -34,6 +34,7 @@ export class FindController {
 	error: string | null = $state(null);
 	replaceValue = $state('');
 	replaceStatus: string | null = $state(null);
+	replaceOpen = $state(false);
 	codeMatchCount = $state(0);
 	codeActiveIdx = $state(0);
 
@@ -77,6 +78,11 @@ export class FindController {
 		}
 		this.deps.switchToTree();
 		this.open = true;
+	};
+
+	openReplace = () => {
+		this.replaceOpen = true;
+		this.openFind();
 	};
 
 	close = () => {

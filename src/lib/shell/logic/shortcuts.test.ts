@@ -32,15 +32,30 @@ describe('the shortcut table', () => {
 		expect(SHORTCUTS.filter((s) => !ids.has(s.command)).map((s) => s.command)).toEqual([]);
 	});
 
-	it('uses each key combination once', () => {
-		const combos = SHORTCUTS.map((s) => `${s.shift ? 'Shift+' : ''}${s.key}`);
+	it.each(['mac', 'notMac'] as const)('uses each key combination once on %s', (platform) => {
+		const combos = SHORTCUTS.filter((s) => s.platform === 'all' || s.platform === platform).map(
+			(s) => `${s.alt ? 'Alt+' : ''}${s.shift ? 'Shift+' : ''}${s.key}`,
+		);
 		expect(new Set(combos).size).toBe(combos.length);
 	});
 
 	it('labels a command with its keys', () => {
 		expect(shortcutKeys('doc.saveAs')).toBe('⌘⇧S');
 		expect(shortcutKeys('tab.next')).toBe('⌘⇧]');
+		expect(shortcutKeys('find.replace')).toBe('⌘H');
 		expect(shortcutKeys('tree.expandAll')).toBeNull();
+	});
+
+	it('labels Find and Replace with the macOS keys on macOS', async () => {
+		vi.resetModules();
+		vi.doMock('$lib/util/platform', async (importOriginal) => ({
+			...(await importOriginal<typeof import('$lib/util/platform')>()),
+			isMac: true,
+		}));
+		const mac = await import('./shortcuts');
+		expect(mac.shortcutKeys('find.replace')).toBe('⌘⌥F');
+		expect(mac.shortcutKeys('doc.saveAs')).toBe('⌘⇧S');
+		vi.doUnmock('$lib/util/platform');
 	});
 });
 
@@ -51,11 +66,13 @@ describe('matchShortcut — Ctrl shortcuts off macOS', () => {
 		expect(matchShortcut(key('BracketRight', { shiftKey: true }))).toBe('tab.next');
 		expect(matchShortcut(key('Comma'))).toBe('nav.settings');
 		expect(matchShortcut(key('Slash'))).toBe('help.shortcuts');
+		expect(matchShortcut(key('KeyH'))).toBe('find.replace');
 	});
 
-	it('ignores keys without Ctrl, with Alt, or with no shortcut', () => {
+	it('ignores keys without Ctrl, with Alt, macOS-only keys, or keys with no shortcut', () => {
 		expect(matchShortcut(key('KeyS', { ctrlKey: false }))).toBeNull();
 		expect(matchShortcut(key('KeyS', { altKey: true }))).toBeNull();
+		expect(matchShortcut(key('KeyF', { altKey: true }))).toBeNull();
 		expect(matchShortcut(key('KeyJ'))).toBeNull();
 	});
 });

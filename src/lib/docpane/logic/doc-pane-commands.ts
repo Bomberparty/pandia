@@ -136,7 +136,7 @@ export function createDocPaneCommands(actions: DocPaneActions): Command[] {
 			label: 'Find and Replace…',
 			category: 'Navigate',
 			enabled: actions.hasDoc,
-			run: () => actions.find.openFind(),
+			run: () => actions.find.openReplace(),
 		},
 		{
 			id: 'tree.expandAll',

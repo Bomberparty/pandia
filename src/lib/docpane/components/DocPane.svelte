@@ -536,6 +536,8 @@
 				onReplaceChange={(v) => (find.replaceValue = v)}
 				onReplaceAll={find.replaceAll}
 				replaceStatus={find.replaceStatus}
+				replaceOpen={find.replaceOpen}
+				onToggleReplace={() => (find.replaceOpen = !find.replaceOpen)}
 			/>
 		</div>
 	{:else if doc.viewMode === 'compare' && session.handle && compare.handle && session.summary && compare.summary}
@@ -575,6 +577,8 @@
 				onReplaceChange={(v) => (find.replaceValue = v)}
 				onReplaceAll={find.replaceAll}
 				replaceStatus={find.replaceStatus}
+				replaceOpen={find.replaceOpen}
+				onToggleReplace={() => (find.replaceOpen = !find.replaceOpen)}
 			/>
 		</div>
 	{:else if doc.viewMode === 'graph' && session.handle}
