@@ -14,6 +14,7 @@ vi.mock('$lib/ipc/client', () => ({
 		docRedo: vi.fn(),
 		docSummary: vi.fn(),
 		docOpen: vi.fn(),
+		docClose: vi.fn(async () => true),
 	},
 }));
 vi.mock('$lib/settings/state/behavior-prefs.svelte', () => ({
@@ -136,10 +137,14 @@ function summary(sourcePath: string | null): Summary {
 	} as Summary;
 }
 
-function opened(sourcePath: string | null, notes: Partial<OpenNotes> = {}): OpenOutcome {
+function opened(
+	sourcePath: string | null,
+	notes: Partial<OpenNotes> = {},
+	handle = 'h1',
+): OpenOutcome {
 	return {
 		kind: 'opened',
-		handle: 'h1' as never,
+		handle: handle as never,
 		summary: summary(sourcePath),
 		notes: { convertedFrom: null, repairs: [], ...notes },
 	};
@@ -147,10 +152,39 @@ function opened(sourcePath: string | null, notes: Partial<OpenNotes> = {}): Open
 
 describe('DocSessionController — opening a source', () => {
 	function fresh() {
+		vi.clearAllMocks();
 		const s = setup(false);
 		s.session.handle = null;
 		return s;
 	}
+
+	it('closes a slower earlier open instead of letting it replace a newer one', async () => {
+		const { session } = fresh();
+		let finishBig!: (o: OpenOutcome) => void;
+		vi.mocked(ipc.docOpen)
+			.mockImplementationOnce(() => new Promise((r) => (finishBig = r)))
+			.mockResolvedValueOnce(opened('/w/small.json', {}, 'small'));
+		const big = session.loadFromSource({ kind: 'file', path: '/w/big.json' });
+		expect(await session.loadFromSource({ kind: 'file', path: '/w/small.json' })).toBe(true);
+		finishBig(opened('/w/big.json', {}, 'big'));
+		expect(await big).toBe(false);
+		expect(session.handle).toBe('small');
+		expect(session.sourceName).toBe('/w/small.json');
+		expect(ipc.docClose).toHaveBeenCalledWith('big');
+	});
+
+	it('closes a document that finishes opening after its tab closed', async () => {
+		const { session } = fresh();
+		let finish!: (o: OpenOutcome) => void;
+		vi.mocked(ipc.docOpen).mockImplementationOnce(() => new Promise((r) => (finish = r)));
+		const load = session.loadFromSource({ kind: 'file', path: '/w/big.json' });
+		session.dispose();
+		await vi.waitFor(() => expect(finish).toBeDefined());
+		finish(opened('/w/big.json', {}, 'late'));
+		expect(await load).toBe(false);
+		expect(session.handle).toBeNull();
+		expect(ipc.docClose).toHaveBeenCalledWith('late');
+	});
 
 	it('opens in one call, passing the auto-repair setting', async () => {
 		const { session } = fresh();

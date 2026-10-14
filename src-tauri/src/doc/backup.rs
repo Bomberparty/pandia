@@ -24,9 +24,6 @@ fn backup_dir(app: &AppHandle) -> std::io::Result<PathBuf> {
     private_dir(base.join("backups"))
 }
 
-// Backups hold unsaved document text, which can be a secret. Where the home folder is open to
-// other users (older Ubuntu and Debian), default permissions would let them read it. Folders
-// and files from earlier versions are tightened on the next write.
 fn private_dir(dir: PathBuf) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&dir)?;
     #[cfg(unix)]
@@ -39,20 +36,15 @@ fn private_dir(dir: PathBuf) -> std::io::Result<PathBuf> {
 
 fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    }
-    file.write_all(text.as_bytes())
+    super::atomic::write_atomic(path, |w| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            w.get_ref()
+                .set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        w.write_all(text.as_bytes())
+    })
 }
 
 fn sanitize_doc_id(doc_id: &str) -> String {
@@ -135,7 +127,7 @@ fn dedupe_newest_first(mut records: Vec<BackupRecord>) -> (Vec<BackupRecord>, Ve
         let key = rec
             .original_path
             .clone()
-            .or_else(|| rec.display_name.clone())
+            .filter(|p| std::path::Path::new(p).is_absolute())
             .unwrap_or_else(|| rec.doc_id.clone());
         if seen.insert(key) {
             kept.push(rec);
@@ -206,15 +198,16 @@ mod tests {
     }
 
     #[test]
-    fn dedupe_falls_back_to_display_name_then_doc_id() {
+    fn documents_without_a_file_are_never_merged() {
         let recs = vec![
-            rec("d1", None, Some("draft"), "2000"),
-            rec("d2", None, Some("draft"), "1000"),
-            rec("d3", None, None, "1500"),
+            rec("d1", Some("pasted.json"), Some("pasted.json"), "2000"),
+            rec("d2", Some("pasted.json"), Some("pasted.json"), "1000"),
+            rec("d3", None, Some("draft"), "1500"),
+            rec("d4", None, Some("draft"), "1400"),
         ];
         let (kept, stale) = dedupe_newest_first(recs);
         let kept_ids: Vec<_> = kept.iter().map(|r| r.doc_id.as_str()).collect();
-        assert_eq!(kept_ids, vec!["d1", "d3"]);
-        assert_eq!(stale, vec!["d2".to_string()]);
+        assert_eq!(kept_ids, vec!["d1", "d3", "d4", "d2"]);
+        assert!(stale.is_empty());
     }
 }

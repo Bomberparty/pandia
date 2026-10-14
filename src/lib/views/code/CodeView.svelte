@@ -106,8 +106,7 @@
 	let error: string | null = $state(null);
 
 	let editorView: EditorView | undefined;
-	// Canonical text and its offsets both come from Rust (docs/adr/0002) —
-	// ranges are fetched on demand per highlighted path, keyed by pathKey.
+
 	let offsetRanges = new Map<string, [number, number]>();
 	let offsetsInFlight = new Set<string>();
 
@@ -169,7 +168,7 @@
 		}
 		baseline = text;
 		parseError = null;
-		setDirty(false);
+		setDirty(editorView.state.doc.toString() !== text);
 		return true;
 	}
 

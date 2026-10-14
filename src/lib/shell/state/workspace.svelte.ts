@@ -59,6 +59,11 @@ export class TabSlot {
 	isHandleAlive(handle: DocHandle): boolean {
 		return this.workspace.isHandleAlive(handle);
 	}
+
+	/** Asks about unsaved work the way closing the tab does; false means keep the document. */
+	resolveUnsaved(): Promise<boolean> {
+		return this.workspace.resolveUnsaved([this.tabId]);
+	}
 }
 
 export class Workspace {
@@ -229,7 +234,7 @@ export class Workspace {
 		return bytes < LARGE_FILE_WARN_BYTES || this.prompts.confirmLargeFile(basename(path), bytes);
 	}
 
-	private async resolveUnsaved(ids: string[]): Promise<boolean> {
+	async resolveUnsaved(ids: string[]): Promise<boolean> {
 		let unsaved = ids.filter((id) => this.views[id]?.status?.dirty);
 		if (behaviorPrefs.autoSaveOnIdle) {
 			const left: string[] = [];
@@ -290,7 +295,11 @@ export class Workspace {
 	}
 
 	private reusable(id: string): boolean {
-		return this.isEmpty(id) && !this.tabs.find((t) => t.id === id)?.handoff?.owes;
+		return (
+			this.isEmpty(id) &&
+			this.pendingOpens[id] == null &&
+			!this.tabs.find((t) => t.id === id)?.handoff?.owes
+		);
 	}
 
 	private setPendingOpen(id: string, source: OpenSource): void {

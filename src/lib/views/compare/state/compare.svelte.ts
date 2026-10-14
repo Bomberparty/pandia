@@ -7,6 +7,7 @@ import { JSON_OPEN_FILTERS } from '$lib/util/file-types';
 
 export interface CompareDeps {
 	mainHandle: () => DocHandle | null;
+	flushEdits: () => Promise<boolean>;
 
 	setViewMode: (mode: 'compare' | 'tree') => void;
 	setBusy: (busy: boolean) => void;
@@ -32,6 +33,7 @@ export class CompareController {
 
 	start = async (target: CompareTarget) => {
 		if (target.kind === 'file') return this.pickFile();
+		if (!(await this.deps.flushEdits())) return;
 		if (target.kind === 'path') return this.openFile(target.path);
 		if (target.handle === this.deps.mainHandle()) return;
 		this.deps.setBusy(true);
@@ -52,6 +54,7 @@ export class CompareController {
 	};
 
 	pickFile = async () => {
+		if (!(await this.deps.flushEdits())) return;
 		const picked = await openDialog({
 			multiple: false,
 			directory: false,

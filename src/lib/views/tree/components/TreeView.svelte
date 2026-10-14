@@ -34,7 +34,7 @@
 	}
 
 	interface EditingState {
-		rowIndex: number;
+		path: Path;
 		field: 'key' | 'value';
 		buffer: string;
 	}
@@ -94,6 +94,7 @@
 	}: Props = $props();
 
 	const cutKey = $derived(cutPath ? pathKey(cutPath) : null);
+	const editingKey = $derived(editing ? pathKey(editing.path) : null);
 
 	const tallHeights = new Map<string, number>();
 	let heightsVersion = $state(0);
@@ -234,7 +235,6 @@
 		openInBrowser(url).catch(() => {});
 	}
 
-	// A long string's preview is cut short, so embedded images read the full value on demand.
 	function onImageHover(e: PointerEvent, row: ContentRow) {
 		const url = detectUrl(row.preview);
 		imagePreview.hoverStart(e.currentTarget as Element, () =>
@@ -427,7 +427,7 @@
 								size="xs"
 							/>{/if}</span
 					>
-					{#if editing && editing.rowIndex === i && editing.field === 'key'}
+					{#if editing?.field === 'key' && editingKey === pathKey(row.path)}
 						<InlineCellEditor
 							field="key"
 							buffer={editing.buffer}
@@ -440,7 +440,7 @@
 						<span class="k" class:idx={typeof row.key === 'number'}>{renderKey(row)}</span>
 					{/if}
 					{#if row.depth > 0 || row.kind !== 'object'}<span class="colon">:</span>{/if}
-					{#if editing && editing.rowIndex === i && editing.field === 'value'}
+					{#if editing?.field === 'value' && editingKey === pathKey(row.path)}
 						<InlineCellEditor
 							field="value"
 							buffer={editing.buffer}

@@ -1,7 +1,7 @@
 import { ipc } from '$lib/ipc/client';
 import { decodeLossless } from '$lib/ipc/wire';
 import { describeError } from '$lib/ipc/error-copy';
-import { pathKey, type ContentRow, type Row } from './model';
+import type { ContentRow, Row } from './model';
 import { findIndexPaged } from './paging';
 import { reorderDestination } from '$lib/util/reorder';
 import { pathToString } from '$lib/util/path';
@@ -10,6 +10,16 @@ import type { ApplyResult, DocHandle, Op, OpenSource, Path } from '$lib/ipc/bind
 
 const CHUNK = 200;
 const OBJECT_REORDER_MAX = 2000;
+
+function startsWith(path: Path, prefix: Path): boolean {
+	return prefix.length <= path.length && prefix.every((seg, i) => path[i] === seg);
+}
+
+function shiftedByInsert(path: Path, parent: Path, index: number): Path {
+	const at = path[parent.length];
+	if (!startsWith(path, parent) || typeof at !== 'number' || at < index) return path;
+	return [...path.slice(0, parent.length), at + 1, ...path.slice(parent.length + 1)];
+}
 
 export interface CutMark {
 	path: Path;
@@ -321,8 +331,12 @@ export function createNodeActions(deps: NodeActionDeps) {
 			const parentPath = row.path.slice(0, -1);
 
 			const cut = deps.getCutMark();
-			const isCutPaste =
-				cut !== null && cut.text === text && pathKey(cut.path.slice(0, -1)) !== pathKey(parentPath);
+			const isCutPaste = cut !== null && cut.text === text;
+			if (isCutPaste && startsWith(parentPath, cut.path)) {
+				deps.setError("A cut value can't be pasted inside itself.");
+				return;
+			}
+			let source = cut?.path ?? [];
 
 			if (typeof row.key === 'number') {
 				const inserted = await deps.apply({
@@ -332,6 +346,7 @@ export function createNodeActions(deps: NodeActionDeps) {
 					text,
 				});
 				if (!inserted) return;
+				source = shiftedByInsert(source, parentPath, row.key + 1);
 			} else {
 				const newKey = await deps.prompt.show('paste as new key:', `${row.key}_copy`);
 				if (newKey === null || newKey === '') return;
@@ -346,9 +361,9 @@ export function createNodeActions(deps: NodeActionDeps) {
 				if (!inserted) return;
 			}
 
-			if (isCutPaste && cut) {
-				const sourceParent = cut.path.slice(0, -1);
-				const sourceKey = cut.path[cut.path.length - 1];
+			if (isCutPaste) {
+				const sourceParent = source.slice(0, -1);
+				const sourceKey = source[source.length - 1];
 				if (typeof sourceKey === 'number') {
 					await deps.apply({
 						kind: 'deleteItem',
@@ -368,7 +383,6 @@ export function createNodeActions(deps: NodeActionDeps) {
 
 		extract: guard((row: ContentRow) => openExtracted(row, (h) => ipc.docGetValue(h, row.path))),
 
-		// The menu offers this only on a key of an array item: [...array, index, key].
 		extractColumn: guard((row: ContentRow) =>
 			openExtracted(row, (h) => ipc.docGetColumn(h, row.path.slice(0, -2), String(row.key))),
 		),

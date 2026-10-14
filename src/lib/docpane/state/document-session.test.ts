@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
+import { ipc } from '$lib/ipc/client';
 import { DocumentSession, type DocumentSessionDeps } from './document-session.svelte';
 import { inRoot } from '$lib/views/shared/test-runes.svelte';
 import type { CodeViewApi } from '$lib/views/code/CodeView.svelte';
@@ -75,6 +76,27 @@ describe('DocumentSession — one owner for the pane wiring', () => {
 			flush.mockResolvedValue(true);
 			await doc.switchView('tree');
 			expect(doc.viewMode).toBe('tree');
+		} finally {
+			destroy();
+		}
+	});
+
+	it('navigating or comparing away from a dirty code view is gated on the flush too', async () => {
+		const flush = vi.fn(async () => false);
+		const api = { flush } as unknown as CodeViewApi;
+		const { result: doc, destroy } = inRoot(
+			() => new DocumentSession(stubDeps({ code: { api: () => api, dirty: () => true } })),
+		);
+		try {
+			doc.session.handle = 'main' as never;
+			doc.viewMode = 'code';
+			await doc.nav.navigateTo(['a']);
+			expect(doc.viewMode).toBe('code');
+
+			await doc.compare.start({ kind: 'tab', handle: 'other' as never, sourceName: 'b.json' });
+			expect(doc.viewMode).toBe('code');
+			expect(ipc.docSummary).not.toHaveBeenCalled();
+			expect(flush).toHaveBeenCalledTimes(2);
 		} finally {
 			destroy();
 		}

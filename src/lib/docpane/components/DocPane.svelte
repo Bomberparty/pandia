@@ -187,7 +187,9 @@
 			if (doc.viewMode === 'code' && codeApi) codeApi.redo();
 			else void session.redo();
 		},
-		close: session.reset,
+		close: async () => {
+			if (await slot.resolveUnsaved()) await session.reset();
+		},
 		goToPath: nav.goToPath,
 		onExpandAll,
 		onCollapseAll,

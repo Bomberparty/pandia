@@ -92,12 +92,21 @@ pub(crate) fn replace_in_value(v: &mut Value, re: &Regex, repl: &str, count: &mu
         }
         Value::Object(map) => {
             let entries: Vec<(String, Value)> = std::mem::take(map).into_iter().collect();
+            let original: std::collections::HashSet<String> =
+                if entries.iter().any(|(k, _)| re.is_match(k)) {
+                    entries.iter().map(|(k, _)| k.clone()).collect()
+                } else {
+                    Default::default()
+                };
             for (k, mut val) in entries {
                 replace_in_value(&mut val, re, repl, count);
                 let kc = re.find_iter(&k).count() as u32;
                 let key = if kc > 0 {
                     let candidate = re.replace_all(&k, regex::NoExpand(repl)).into_owned();
-                    if candidate != k && !map.contains_key(&candidate) {
+                    if candidate != k
+                        && !map.contains_key(&candidate)
+                        && !original.contains(&candidate)
+                    {
                         *count += kc;
                         candidate
                     } else {

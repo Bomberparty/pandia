@@ -71,6 +71,7 @@ export class DocumentSession {
 
 		this.edit = new DocEditController({
 			rows: () => this.tree.rows,
+			indexOf: (path) => this.tree.contentRowIdx(path),
 			handle: () => this.session.handle,
 			apply: (op) => this.session.applyOp(op),
 			setError,
@@ -95,6 +96,7 @@ export class DocumentSession {
 
 		this.compare = new CompareController({
 			mainHandle: () => this.session.handle,
+			flushEdits: () => this.flushCode(),
 			isHandleAlive: (h) => deps.isHandleAlive(h),
 			setViewMode: (mode) => {
 				this.viewMode = mode;
@@ -116,11 +118,7 @@ export class DocumentSession {
 			getError: () => this.error,
 			setSelectedPath: (p) => this.nav.select(p),
 			clearViewState: () => deps.clearViewState(),
-			flushPendingEdits: async () => {
-				const api = deps.code.api();
-				if (this.viewMode === 'code' && deps.code.dirty() && api) return api.flush();
-				return true;
-			},
+			flushPendingEdits: () => this.flushCode(),
 			applyDefaultView: async (summary) => {
 				await sidebarPrefs.init();
 				this.viewMode = resolveDefaultView(sidebarPrefs.defaultView, summary);
@@ -137,9 +135,7 @@ export class DocumentSession {
 			tree: this.tree,
 			handle: () => this.session.handle,
 			prompt: this.prompt,
-			switchToTree: () => {
-				if (this.viewMode !== 'tree') this.viewMode = 'tree';
-			},
+			switchToTree: () => this.switchView('tree'),
 			setError,
 		});
 
@@ -177,12 +173,16 @@ export class DocumentSession {
 		setTimeout(() => (this.saveFlash = null), SAVE_FLASH_MS);
 	};
 
-	switchView = async (mode: ViewMode) => {
+	private flushCode = async (): Promise<boolean> => {
 		const api = this.deps.code.api();
-		if (this.viewMode === 'code' && mode !== 'code' && this.deps.code.dirty() && api) {
-			if (!(await api.flush())) return;
-		}
+		if (this.viewMode === 'code' && this.deps.code.dirty() && api) return api.flush();
+		return true;
+	};
+
+	switchView = async (mode: ViewMode): Promise<boolean> => {
+		if (mode !== 'code' && !(await this.flushCode())) return false;
 		this.viewMode = mode;
+		return true;
 	};
 
 	dispose = () => {

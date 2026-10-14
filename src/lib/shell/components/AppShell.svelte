@@ -175,15 +175,16 @@
 		};
 	});
 
-	function restoreOne(rec: BackupRecord) {
+	async function restoreOne(rec: BackupRecord) {
 		const name = rec.displayName ?? 'recovered.json';
-		void workspace.open({ kind: 'text', text: rec.content, name });
+		const outcome = await workspace.open({ kind: 'text', text: rec.content, name });
+		if (outcome.kind !== 'opened') return;
 		void ipc.docBackupClear(rec.docId).catch(() => {});
 		recovery = recovery.filter((r) => r.docId !== rec.docId);
 	}
 
-	function restoreAll() {
-		for (const rec of [...recovery]) restoreOne(rec);
+	async function restoreAll() {
+		for (const rec of [...recovery]) await restoreOne(rec);
 	}
 
 	function discardRecovery() {

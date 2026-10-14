@@ -113,6 +113,11 @@ pub fn deep_unescape(text: &str, max_iterations: u32) -> DeepUnescapeResult {
     }
 }
 
+fn structure_is_escaped(body: &str) -> bool {
+    body.trim_start_matches(|c: char| c == '{' || c == '[' || c.is_whitespace())
+        .starts_with('\\')
+}
+
 fn is_valid(text: &str) -> bool {
     serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
 }
@@ -132,7 +137,7 @@ pub fn repair(input: &str) -> Option<Repaired> {
 
     let unescaped;
     let mut body = body;
-    if is_escaped(body) {
+    if structure_is_escaped(body) {
         let r = deep_unescape(body, 5);
         if r.iterations > 0 {
             notes.unescape_levels = r.iterations;
@@ -357,7 +362,6 @@ enum Slot {
 struct Frame {
     object: bool,
     slot: Slot,
-    // Output length before the current member, so a key the file never gave a value can go.
     member_start: usize,
 }
 
@@ -818,6 +822,16 @@ mod tests {
         let step2 = escape(&escape(r#"{"a":1}"#));
         let r = deep_unescape(&step2, 5);
         assert!(r.success, "result: {} error: {:?}", r.result, r.error);
+    }
+
+    #[test]
+    fn ordinary_escapes_in_a_cut_off_file_are_kept() {
+        let (v, notes) = fixed(r#"[{"path":"C:\\new\\file.txt"},{"path":"C:\\te"#);
+        assert_eq!(v[0]["path"], "C:\\new\\file.txt");
+        assert!(!notes.iter().any(|n| n.contains("Unescaped")), "{notes:?}");
+
+        let (v, _) = fixed(r#"[{"msg":"say \"hi\""},{"msg":"cut"#);
+        assert_eq!(v[0]["msg"], "say \"hi\"");
     }
 
     #[test]

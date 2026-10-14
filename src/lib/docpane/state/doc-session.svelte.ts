@@ -83,17 +83,24 @@ export class DocSessionController {
 	repairInfo: RepairInfo | null = $state(null);
 	diagnosis: Diagnosis | null = $state(null);
 
-	// Set when a terminal launch opened this document; it hears about saves.
 	handoff: Handoff | null = null;
+
+	private loadSeq = 0;
+	private disposed = false;
 
 	constructor(private deps: DocSessionDeps) {}
 
 	private load = async (opener: () => Promise<OpenOutcome>): Promise<boolean> => {
+		const seq = ++this.loadSeq;
 		this.deps.setBusy(true);
 		this.deps.setError(null);
 		try {
 			await this.reset();
 			const outcome = await opener();
+			if (seq !== this.loadSeq || this.disposed) {
+				if (outcome.kind === 'opened') void ipc.docClose(outcome.handle).catch(() => {});
+				return false;
+			}
 			if (outcome.kind === 'failed') {
 				this.deps.setError(describeOpenFailure(outcome));
 				this.diagnosis = outcome.diagnosis;
@@ -111,10 +118,10 @@ export class DocSessionController {
 			}
 			return true;
 		} catch (e) {
-			this.deps.setError(describeError(e));
+			if (seq === this.loadSeq) this.deps.setError(describeError(e));
 			return false;
 		} finally {
-			this.deps.setBusy(false);
+			if (seq === this.loadSeq) this.deps.setBusy(false);
 		}
 	};
 
@@ -157,6 +164,7 @@ export class DocSessionController {
 	};
 
 	dispose = () => {
+		this.disposed = true;
 		if (this.handle != null) void ipc.docClose(this.handle);
 		void this.deps.compare.release();
 	};

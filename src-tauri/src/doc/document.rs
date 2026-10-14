@@ -7,6 +7,7 @@ use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::atomic;
 use super::backend::DocumentBackend;
 use super::eager::{cmp_cell, replace_in_value};
 use super::export::{export as export_value, ExportFormat};
@@ -315,23 +316,22 @@ impl Document {
     }
 
     pub fn export_to_file(&self, format: ExportFormat, path: &str) -> DocResult<()> {
-        let file = std::fs::File::create(path)
-            .map_err(|e| DocError::file(FileOp::Export, FsPath::new(path), e))?;
-        let mut w = std::io::BufWriter::new(file);
+        let target = FsPath::new(path);
         match format {
             ExportFormat::Json | ExportFormat::JsonMin => {
                 let pretty = matches!(format, ExportFormat::Json);
-                self.backend()
-                    .write_json(pretty, &mut w)
-                    .map_err(|e| DocError::Export(e.to_string()))?;
+                atomic::write_atomic(target, |w| {
+                    self.backend()
+                        .write_json(pretty, w)
+                        .map_err(std::io::Error::other)
+                })
             }
             _ => {
                 let full = self.export(format)?;
-                std::io::Write::write_all(&mut w, full.as_bytes())?;
+                atomic::write_atomic(target, |w| std::io::Write::write_all(w, full.as_bytes()))
             }
         }
-        std::io::Write::flush(&mut w)?;
-        Ok(())
+        .map_err(|e| DocError::file(FileOp::Export, target, e))
     }
 
     pub fn export_preview(
@@ -380,8 +380,10 @@ impl Document {
             },
             _ => self.serialize()?,
         };
-        std::fs::write(&target, text)
-            .map_err(|e| DocError::file(FileOp::Save, FsPath::new(&target), e))?;
+        atomic::write_atomic(FsPath::new(&target), |w| {
+            std::io::Write::write_all(w, text.as_bytes())
+        })
+        .map_err(|e| DocError::file(FileOp::Save, FsPath::new(&target), e))?;
         self.comments_stripped = false;
         self.file_path = Some(target.clone());
         self.source_path = Some(target.clone());
@@ -956,11 +958,8 @@ impl Document {
                     limit: EDIT_SIZE_LIMIT,
                 });
             }
-            let placeholder = DocumentImpl::Eager(Value::Null);
-            let old = std::mem::replace(&mut self.inner, placeholder);
-            let lazy = match old {
-                DocumentImpl::Lazy(l) => l,
-                _ => unreachable!("checked above"),
+            let DocumentImpl::Lazy(lazy) = &self.inner else {
+                unreachable!("checked above")
             };
             let value: Value =
                 serde_json::from_str(lazy.source()).map_err(|e| DocError::Parse(e.to_string()))?;
@@ -1667,6 +1666,26 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_edit_leaves_a_lazy_doc_as_it_was() {
+        let pad = "x".repeat(11 * 1024 * 1024);
+        let json = format!(r#"{{"emoji": "\ud83d", "pad": "{}"}}"#, pad);
+        let mut d = doc(&json);
+        assert!(matches!(d.inner, DocumentImpl::Lazy(_)));
+
+        let op = super::super::ops::Op::InsertKey {
+            path: Path::root(),
+            key: "added".into(),
+            value: serde_json::json!(true),
+            position: None,
+        };
+        assert!(d.apply(&op).is_err());
+
+        assert!(matches!(d.inner, DocumentImpl::Lazy(_)));
+        assert_eq!(d.summary().root_kind, NodeKind::Object);
+        assert_eq!(d.get_slice(&Path::root(), 0..10).unwrap().len(), 2);
+    }
+
+    #[test]
     fn apply_on_lazy_doc_materializes_to_eager() {
         let pad: String = std::iter::repeat('x').take(11 * 1024 * 1024).collect();
         let json = format!(r#"{{"pad": "{}"}}"#, pad);
@@ -2183,6 +2202,17 @@ mod tests {
     }
 
     #[test]
+    fn replace_all_never_renames_a_key_onto_another_key() {
+        for text in [r#"{"foo":1,"baz":2}"#, r#"{"baz":2,"foo":1}"#] {
+            let mut d = doc(text);
+            let r = d.replace_all("foo", "baz", false).unwrap();
+            assert_eq!(r.count, 0, "{text}");
+            let v = d.get_value(&Path::root()).unwrap();
+            assert_eq!(v, serde_json::json!({"foo": 1, "baz": 2}), "{text}");
+        }
+    }
+
+    #[test]
     fn replace_all_values_keys_and_undo() {
         let mut d = doc(r#"{"name":"Foo Bar","note":"foo foo","FOO":1}"#);
         let r = d.replace_all("foo", "baz", false).unwrap();
@@ -2210,6 +2240,16 @@ mod tests {
         let r3 = d3.replace_all("zzz", "y", false).unwrap();
         assert_eq!(r3.count, 0);
         assert!(r3.applied.is_none());
+    }
+
+    #[test]
+    fn a_failed_export_leaves_the_existing_file_untouched() {
+        let d = doc(r#"{"not": "an array of objects"}"#);
+        let path = temp_path("export-keep.csv");
+        std::fs::write(&path, "id,name\n1,kept\n").unwrap();
+        assert!(d.export_to_file(ExportFormat::Csv, &path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "id,name\n1,kept\n");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

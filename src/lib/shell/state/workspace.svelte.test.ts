@@ -184,8 +184,23 @@ describe('Workspace: opening', () => {
 		expect(ws.slot(first.tabId).handoff?.waiting).toBe(true);
 
 		const plain = new Workspace(prompts());
-		const a = await openTab(plain, '/w/a.json');
-		expect(await openTab(plain, '/w/b.json')).toBe(a);
+		expect(await openTab(plain, '/w/a.json')).toBe(plain.activeId);
+	});
+
+	it('gives each source its own tab while earlier ones are still opening', async () => {
+		const ws = new Workspace(prompts());
+		const ids = [
+			await openTab(ws, '/w/a.json'),
+			await openTab(ws, '/w/b.json'),
+			((await ws.open({ kind: 'text', text: '{}', name: 'recovered.json' })) as { tabId: string })
+				.tabId,
+		];
+		expect(new Set(ids).size).toBe(3);
+		expect(ids.map((id) => ws.pendingOpens[id])).toEqual([
+			{ kind: 'file', path: '/w/a.json' },
+			{ kind: 'file', path: '/w/b.json' },
+			{ kind: 'text', text: '{}', name: 'recovered.json' },
+		]);
 	});
 });
 
@@ -198,6 +213,21 @@ describe('Workspace: closing a tab', () => {
 		expect(await ws.close(id)).toBe(true);
 		expect(p.confirmUnsaved).not.toHaveBeenCalled();
 		expect(ws.tabs.map((t) => t.id)).not.toContain(id);
+	});
+
+	it('lets a pane ask about unsaved work before closing its document', async () => {
+		const p = prompts();
+		const ws = new Workspace(p);
+		const id = await openTab(ws, '/w/a.json');
+		pane(ws, id, { dirty: false });
+		expect(await ws.slot(id).resolveUnsaved()).toBe(true);
+		expect(p.confirmUnsaved).not.toHaveBeenCalled();
+
+		pane(ws, id, { dirty: true });
+		p.confirmUnsaved.mockResolvedValue('cancel');
+		expect(await ws.slot(id).resolveUnsaved()).toBe(false);
+		expect(p.confirmUnsaved).toHaveBeenLastCalledWith(['a.json']);
+		expect(ws.tabs.map((t) => t.id)).toContain(id);
 	});
 
 	it('saves a file-backed tab silently when auto-save is on', async () => {
