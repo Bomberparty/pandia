@@ -20,6 +20,7 @@
 	let selectedIdx = $state(0);
 	let inputEl: HTMLInputElement | undefined = $state();
 	let listEl: HTMLUListElement | undefined = $state();
+	let pressedBackdrop = false;
 
 	$effect(() => {
 		if (open) {
@@ -121,7 +122,8 @@
 {#if open}
 	<div
 		class="backdrop"
-		onclick={onClose}
+		onmousedown={(e) => (pressedBackdrop = e.target === e.currentTarget)}
+		onclick={() => pressedBackdrop && onClose()}
 		onkeydown={(e) => {
 			if (e.key === 'Escape') onClose();
 		}}

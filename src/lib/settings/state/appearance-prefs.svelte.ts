@@ -126,12 +126,8 @@ class AppearancePrefs extends PersistedStore {
 	private applyAll(): void {
 		this.applyResolved();
 		applyDensity(this.density);
-		if (this.fontFamily !== DEFAULT_MONO) {
-			applyFontFamily({ mono: this.fontFamily });
-		}
-		if (this.fontSizeBase !== DEFAULT_FONT_SIZE) {
-			applyFontSizeBase(this.fontSizeBase);
-		}
+		applyFontFamily({ mono: this.fontFamily });
+		applyFontSizeBase(this.fontSizeBase);
 	}
 
 	private async persist(): Promise<void> {

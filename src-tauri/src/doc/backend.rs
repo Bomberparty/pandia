@@ -161,4 +161,57 @@ mod conformance {
             assert_eq!(e, l, "search {query}");
         }
     }
+
+    #[test]
+    fn repeated_keys_keep_first_position_and_last_value_like_eager() {
+        const REPEATED: &str = r#"{"a": 1, "rows": [{"x": "old", "y": 2, "x": "new"}], "b": 3, "a": {"z": "kept"}, "b": 4}"#;
+        let eager: Value = serde_json::from_str(REPEATED).unwrap();
+        let lazy = LazyDoc::new(REPEATED).unwrap();
+        assert_eq!(
+            DocumentBackend::root_kind_and_count(&eager),
+            DocumentBackend::root_kind_and_count(&lazy)
+        );
+        for path in [
+            p(&[]),
+            p(&[k("a")]),
+            p(&[k("a"), k("z")]),
+            p(&[k("b")]),
+            p(&[k("rows")]),
+            p(&[k("rows"), i(0)]),
+            p(&[k("rows"), i(0), k("x")]),
+        ] {
+            assert_eq!(
+                DocumentBackend::slice(&eager, &path, 0..10).ok(),
+                DocumentBackend::slice(&lazy, &path, 0..10).ok(),
+                "slice {path}"
+            );
+            assert_eq!(
+                DocumentBackend::child_count_at(&eager, &path).ok(),
+                DocumentBackend::child_count_at(&lazy, &path).ok(),
+                "child_count_at {path}"
+            );
+            assert_eq!(
+                DocumentBackend::get_value(&eager, &path).ok(),
+                DocumentBackend::get_value(&lazy, &path).ok(),
+                "get_value {path}"
+            );
+        }
+        let rows = p(&[k("rows")]);
+        assert_eq!(
+            DocumentBackend::column_cells(&eager, &rows, "x").ok(),
+            DocumentBackend::column_cells(&lazy, &rows, "x").ok()
+        );
+        for query in ["x", "old", "kept"] {
+            let opts = SearchOptions {
+                query: query.into(),
+                case_sensitive: false,
+                max_results: None,
+            };
+            assert_eq!(
+                DocumentBackend::search(&eager, &opts, &CancelFlag::never()),
+                DocumentBackend::search(&lazy, &opts, &CancelFlag::never()),
+                "search {query}"
+            );
+        }
+    }
 }

@@ -429,19 +429,21 @@ tags:
   <id>42</id>
   <name>Ada</name>
   <active>true</active>
-  <tags>admin</tags>
-  <tags>early</tags>
+  <tags>
+    <item>admin</item>
+    <item>early</item>
+  </tags>
 </root>`,
-    intro: 'Pandia converts between JSON and XML in both directions. Import an <code>.xml</code> file and Pandia auto-detects and parses it into a JSON tree; or open JSON and export it as XML, with arrays expanded into repeated elements.',
+    intro: 'Pandia converts between JSON and XML in both directions. Import an <code>.xml</code> file and Pandia auto-detects and parses it into a JSON tree; or open JSON and export it as XML, with each array item written as an <code>&lt;item&gt;</code> element.',
     bullets: [
       'Export any open JSON document as XML.',
       'Import is bidirectional — XML, JSON, YAML, CSV and cURL are auto-detected.',
-      'Arrays become repeated elements; nesting is preserved.',
+      'Each array item becomes an item element; nesting is preserved.',
       localAngle('convert'),
     ],
     faq: [
       { q: 'How do I convert JSON to XML in Pandia?', a: 'Open the JSON document and choose XML from the export menu. You can also import XML and Pandia will parse it into a JSON tree.' },
-      { q: 'How are arrays represented?', a: 'Array items are written as repeated elements under their key, and nested objects keep their structure.' },
+      { q: 'How are arrays represented?', a: 'An array becomes one element named after its key, with an item element for each entry. Nested objects keep their structure.' },
       { q: 'Does it work offline and on large files?', a: 'Yes — conversion runs locally with no upload, and there is no size limit on opening the source document.' },
     ],
   },

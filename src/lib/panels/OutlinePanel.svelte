@@ -68,6 +68,8 @@
 		if (!ctx) {
 			roots = [];
 			rootsMore = false;
+			loadedHandle = null;
+			loadedVersion = -1;
 			return;
 		}
 		if (loadedHandle === ctx.handle && loadedVersion === ctx.version) return;

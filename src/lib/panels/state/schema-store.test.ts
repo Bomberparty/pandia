@@ -128,6 +128,22 @@ describe('SchemaSession', () => {
 		expect(await s.settleVerdict()).toEqual({ kind: 'checked', result: VALID });
 	});
 
+	it('checks a schema pasted before the tab had a document once the document arrives', async () => {
+		const s = schemaSessions.for(`t${++tab}`);
+		s.setText('{"type":"object"}');
+		await vi.advanceTimersByTimeAsync(500);
+		vi.mocked(ipc.docValidateSchema).mockResolvedValue(VALID);
+		s.documentChanged(H, 1);
+		await vi.advanceTimersByTimeAsync(500);
+		expect(s.verdict).toEqual({ kind: 'checked', result: VALID });
+	});
+
+	it('checks again when the tab holds a different document at the same version', async () => {
+		const s = await checkedSession();
+		s.documentChanged('h2' as never, 1);
+		expect(s.verdict.kind).not.toBe('checked');
+	});
+
 	it('gives readers the last finished result while a new check is out', async () => {
 		const s = await checkedSession();
 		s.documentChanged(H, 2);

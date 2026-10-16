@@ -14,7 +14,7 @@ use super::export::{export as export_value, ExportFormat};
 use super::format::{self, InputFormat};
 use super::grid_filter::{row_passes, GridFilter};
 use super::history::History;
-use super::lazy::LazyDoc;
+use super::lazy::{parse_json, LazyDoc};
 use super::ops::{Op, OpDescription, OpOutcome};
 use super::schema_validate::{
     validate as schema_validate_value, SchemaCompileError, SchemaValidationResult,
@@ -174,9 +174,7 @@ impl Document {
         if text.len() as u64 >= LAZY_THRESHOLD_BYTES {
             return Ok(DocumentImpl::Lazy(LazyDoc::new(text)?));
         }
-        serde_json::from_str(text)
-            .map(DocumentImpl::Eager)
-            .map_err(|e| DocError::Parse(e.to_string()))
+        parse_json(text).map(DocumentImpl::Eager)
     }
 
     pub fn from_text(text: &str, source_path: Option<String>) -> DocResult<Self> {
@@ -427,9 +425,6 @@ impl Document {
     }
 
     pub fn child_count_at(&self, path: &Path) -> DocResult<Option<u32>> {
-        if path.is_root() {
-            return Ok(self.summary().root_child_count);
-        }
         self.backend().child_count_at(path)
     }
 
@@ -961,8 +956,7 @@ impl Document {
             let DocumentImpl::Lazy(lazy) = &self.inner else {
                 unreachable!("checked above")
             };
-            let value: Value =
-                serde_json::from_str(lazy.source()).map_err(|e| DocError::Parse(e.to_string()))?;
+            let value: Value = parse_json(lazy.source())?;
             self.inner = DocumentImpl::Eager(value);
         }
         match &mut self.inner {
@@ -1384,6 +1378,62 @@ mod tests {
         assert_eq!(s.root_kind, NodeKind::Object);
     }
 
+    fn nested_doc(depth: usize, pad: usize) -> String {
+        format!(
+            r#"{{"pad":"{}","n":{}{{"leaf":"stale","leaf":"needle"}}{}"#,
+            "x".repeat(pad),
+            r#"{"n":"#.repeat(depth - 2),
+            "}".repeat(depth - 1)
+        )
+    }
+
+    #[test]
+    fn a_thousand_deep_doc_works_on_a_worker_sized_stack() {
+        let stack = if cfg!(debug_assertions) { 256 } else { 2 } * 1024 * 1024;
+        std::thread::Builder::new()
+            .stack_size(stack)
+            .spawn(|| {
+                for pad in [0, 11 * 1024 * 1024] {
+                    let mut d = doc(&nested_doc(1000, pad));
+                    assert_eq!(d.summary().lazy, pad > 0);
+                    let opts = SearchOptions {
+                        query: "needle".into(),
+                        case_sensitive: true,
+                        max_results: None,
+                    };
+                    let never = crate::doc::jobs::CancelFlag::never();
+                    assert_eq!(d.search(&opts, &never).unwrap().len(), 1);
+                    d.generate_types(TypegenLang::Typescript, "Root").unwrap();
+
+                    let mut leaf = Path(vec![PathSegment::Key("n".into()); 999]);
+                    leaf.push(PathSegment::Key("leaf".into()));
+                    d.apply(&Op::SetValue {
+                        path: leaf.clone(),
+                        value: serde_json::json!("edited"),
+                    })
+                    .unwrap();
+                    assert_eq!(d.get_value(&leaf).unwrap(), serde_json::json!("edited"));
+                    drop(d);
+
+                    let err = Document::from_text(&nested_doc(1001, pad), None).unwrap_err();
+                    assert!(matches!(err, DocError::TooDeep { limit: 1000 }), "{err:?}");
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn child_count_at_root_counts_every_key_of_a_lazy_object() {
+        let pad = "x".repeat(100);
+        let keys = 120_000;
+        let body: Vec<String> = (0..keys).map(|i| format!(r#""k{i}": "{pad}""#)).collect();
+        let d = doc(&format!("{{{}}}", body.join(",")));
+        assert!(d.summary().lazy);
+        assert_eq!(d.child_count_at(&Path::root()).unwrap(), Some(keys));
+    }
+
     #[test]
     fn invalid_lazy_doc_returns_parse_error() {
         let pad: String = std::iter::repeat('x').take(11 * 1024 * 1024).collect();
@@ -1621,6 +1671,26 @@ mod tests {
         assert_eq!(rows.len(), 5);
         assert_eq!(rows[0]["i"], serde_json::json!(100_000));
         assert_eq!(rows[4]["i"], serde_json::json!(100_004));
+    }
+
+    #[test]
+    fn grid_sees_every_row_of_a_large_nested_array_in_a_lazy_doc() {
+        let row = r#"{"id": 1, "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}"#;
+        let n = 1000;
+        let text = format!(
+            r#"{{"rows": [{}], "pad": "{}"}}"#,
+            vec![row; n].join(","),
+            "x".repeat(11 * 1024 * 1024)
+        );
+        assert!(n * row.len() > 64 * 1024);
+        let d = doc(&text);
+        assert!(d.summary().lazy);
+
+        let rows = Path(vec![PathSegment::Key("rows".into())]);
+        let schema = super::super::schema::sniff_columns(&d, &rows).unwrap();
+        assert_eq!(schema.row_count, n as u32);
+        assert!(schema.grid_suitable);
+        assert_eq!(d.get_rows(&rows, 0..3).unwrap().len(), 3);
     }
 
     #[test]

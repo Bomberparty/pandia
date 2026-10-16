@@ -20,7 +20,7 @@ pub struct DetectResult {
 }
 
 pub fn detect_and_convert(text: &str) -> DetectResult {
-    let trimmed = text.trim_start();
+    let trimmed = text.trim_start_matches('\u{feff}').trim_start();
     if trimmed.is_empty() {
         return DetectResult {
             kind: DetectKind::Unknown,
@@ -195,7 +195,7 @@ fn convert_xml(text: &str) -> DetectResult {
                     let v = attr
                         .unescape_value()
                         .map(|v| v.into_owned())
-                        .unwrap_or_default();
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
                     attrs.insert(k, Value::String(v));
                 }
                 stack.push((name, attrs, String::new()));
@@ -219,7 +219,7 @@ fn convert_xml(text: &str) -> DetectResult {
                     let v = attr
                         .unescape_value()
                         .map(|v| v.into_owned())
-                        .unwrap_or_default();
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
                     attrs.insert(k, Value::String(v));
                 }
                 let value = into_value(attrs, String::new());
@@ -230,7 +230,10 @@ fn convert_xml(text: &str) -> DetectResult {
                 }
             }
             Ok(Event::Text(t)) => {
-                let txt = t.unescape().map(|v| v.into_owned()).unwrap_or_default();
+                let txt = t
+                    .unescape()
+                    .map(|v| v.into_owned())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&t).into_owned());
                 if let Some(top) = stack.last_mut() {
                     top.2.push_str(&txt);
                 }
@@ -630,6 +633,25 @@ mod tests {
     fn guess_xml_with_prolog() {
         let kind = guess(r#"<?xml version="1.0"?><root>x</root>"#);
         assert_eq!(kind, DetectKind::Xml);
+    }
+
+    #[test]
+    fn xml_unknown_entities_keep_their_text() {
+        let r = detect_and_convert(
+            r#"<r><p>Price &euro; 5</p><q a="x &nbsp; y">ok &nbsp; z</q><e b="&copy;"/></r>"#,
+        );
+        let v = assert_json(&r.json);
+        assert_eq!(v["r"]["p"], "Price &euro; 5");
+        assert_eq!(v["r"]["q"]["#text"], "ok &nbsp; z");
+        assert_eq!(v["r"]["q"]["@a"], "x &nbsp; y");
+        assert_eq!(v["r"]["e"]["@b"], "&copy;");
+    }
+
+    #[test]
+    fn a_byte_order_mark_before_json_is_still_json() {
+        let r =
+            detect_and_convert("\u{feff}{\"id\":1,\"n\":\"a\"}\n{\"id\":2,\"n\":\"b\"}\n{\"id\":3");
+        assert_eq!(r.kind, DetectKind::Json);
     }
 
     #[test]

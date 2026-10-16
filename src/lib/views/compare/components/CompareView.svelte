@@ -19,6 +19,8 @@
 		rightSourceSize: number;
 		leftName: string;
 		rightName: string;
+		leftVersion: number;
+		rightVersion: number;
 
 		staleSource?: boolean;
 
@@ -32,6 +34,8 @@
 		rightSourceSize,
 		leftName,
 		rightName,
+		leftVersion,
+		rightVersion,
 		staleSource = false,
 		onExit,
 	}: Props = $props();
@@ -67,6 +71,8 @@
 	$effect(() => {
 		const l = leftHandle;
 		const r = rightHandle;
+		void leftVersion;
+		void rightVersion;
 		if (staleSource) {
 			loading = false;
 			error = null;
@@ -75,6 +81,7 @@
 			activeHunk = 0;
 			return;
 		}
+		let cancelled = false;
 		loading = true;
 		error = null;
 		entries = [];
@@ -83,17 +90,20 @@
 		void ipc
 			.docDiff(l, r, null)
 			.then((es) => {
-				if (leftHandle === l && rightHandle === r) {
+				if (!cancelled) {
 					entries = es;
 					if (es.length > 0) activeIndex = 0;
 				}
 			})
 			.catch((e) => {
-				if (leftHandle === l && rightHandle === r) error = describeError(e);
+				if (!cancelled) error = describeError(e);
 			})
 			.finally(() => {
-				if (leftHandle === l && rightHandle === r) loading = false;
+				if (!cancelled) loading = false;
 			});
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	function kindGlyph(k: DiffEntry['kind']): string {
@@ -280,7 +290,14 @@
 					>R · {truncatePathMiddle(rightName, inlineBudget)}</span
 				>
 			</div>
-			<InlineDiffView {leftHandle} {rightHandle} {activeHunk} onMeta={onInlineMeta} />
+			<InlineDiffView
+				{leftHandle}
+				{rightHandle}
+				{leftVersion}
+				{rightVersion}
+				{activeHunk}
+				onMeta={onInlineMeta}
+			/>
 		{:else if mode === 'tree'}
 			{@const activeEntry = activeIndex >= 0 ? entries[activeIndex] : undefined}
 			<div class="split">
@@ -292,6 +309,7 @@
 					</div>
 					<CompareTree
 						handle={leftHandle}
+						version={leftVersion}
 						diff={leftDiff}
 						activePath={activeEntry ? leftPathOf(activeEntry) : null}
 						onScrollerReady={(el) => sync.bind('left', el)}
@@ -307,6 +325,7 @@
 					</div>
 					<CompareTree
 						handle={rightHandle}
+						version={rightVersion}
 						diff={rightDiff}
 						{activePath}
 						onScrollerReady={(el) => sync.bind('right', el)}
@@ -314,6 +333,7 @@
 				</div>
 			</div>
 		{:else}
+			{@const activeEntry = activeIndex >= 0 ? entries[activeIndex] : undefined}
 			<div class="split">
 				<div class="pane">
 					<div class="pane-head rule-b" bind:clientWidth={headW}>
@@ -323,9 +343,10 @@
 					</div>
 					<CodeView
 						handle={leftHandle}
+						version={leftVersion}
 						sourceSize={leftSourceSize}
 						highlights={leftHighlights}
-						{activePath}
+						activePath={activeEntry ? leftPathOf(activeEntry) : null}
 						onScrollerReady={(el) => sync.bind('left', el)}
 					/>
 				</div>
@@ -339,6 +360,7 @@
 					</div>
 					<CodeView
 						handle={rightHandle}
+						version={rightVersion}
 						sourceSize={rightSourceSize}
 						highlights={rightHighlights}
 						{activePath}

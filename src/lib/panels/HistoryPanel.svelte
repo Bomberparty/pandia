@@ -20,6 +20,7 @@
 		const ctx = context;
 		if (!ctx) {
 			view = null;
+			loadedKey = '';
 			return;
 		}
 		const key = `${ctx.handle}@${ctx.version}`;

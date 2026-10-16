@@ -45,7 +45,8 @@ export class SchemaSession {
 
 	documentChanged(handle: DocHandle, version: number): void {
 		untrack(() => {
-			const changed = this.doc !== null && this.doc.version !== version;
+			const prev = this.doc;
+			const changed = prev?.handle !== handle || prev.version !== version;
 			this.doc = { handle, version };
 			if (changed && this.verdict.kind !== 'none' && this.verdict.kind !== 'problem') {
 				this.schedule();

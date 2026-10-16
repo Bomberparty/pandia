@@ -8,6 +8,7 @@
 		redo: () => boolean;
 
 		cmSearch: (query: string, caseSensitive: boolean) => number;
+		cmCount: (query: string, caseSensitive: boolean) => number;
 		cmFindNext: () => void;
 		cmFindPrev: () => void;
 
@@ -65,6 +66,7 @@
 
 	interface Props {
 		handle: DocHandle | null;
+		version?: number;
 		sourceSize: number;
 		highlights?: Highlight[];
 		activePath?: Path | null;
@@ -86,6 +88,7 @@
 
 	let {
 		handle,
+		version,
 		sourceSize,
 		highlights = [],
 		activePath = null,
@@ -208,6 +211,8 @@
 			if (count > 0) cmFindNextCmd(editorView); // land on the first match
 			return count;
 		},
+		cmCount: (query, caseSensitive) =>
+			editorView ? countMatches(editorView, query, caseSensitive) : 0,
 		cmFindNext: () => {
 			if (editorView) cmFindNextCmd(editorView);
 		},
@@ -228,6 +233,7 @@
 	};
 
 	$effect(() => {
+		void version;
 		if (!container || tooBig || !handle) return;
 
 		let cancelled = false;

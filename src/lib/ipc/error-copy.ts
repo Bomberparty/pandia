@@ -46,6 +46,8 @@ function describeIpc(e: IpcError): string {
 			return e.actual != null && e.limit != null
 				? `This document is ${fmtBytes(e.actual)} — the limit for this action is ${fmtBytes(e.limit)}. Use a smaller file.`
 				: 'This document is too large for this action. Use a smaller file.';
+		case 'tooDeep':
+			return `This JSON is nested more than ${(e.limit ?? 1000).toLocaleString('en-US')} levels deep, which is more than Pandia supports. Reduce the nesting and try again.`;
 		case 'rangeTooLarge':
 			return e.actual != null && e.limit != null
 				? `Pandia requested ${e.actual} lines at once (the limit is ${e.limit}). This is a bug in Pandia, not a problem with your document.`

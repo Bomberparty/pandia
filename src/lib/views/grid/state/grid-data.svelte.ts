@@ -137,7 +137,8 @@ export class GridDataController {
 		if (!row) return UNLOADED;
 		const v = row.value;
 		if (v === null || typeof v !== 'object') return MISSING;
-		return (v as Record<string, unknown>)[colKey] ?? MISSING;
+		const cell = (v as Record<string, unknown>)[colKey];
+		return cell === undefined ? MISSING : cell;
 	};
 
 	loadedColumnTexts = (colKey: string): string[] => {

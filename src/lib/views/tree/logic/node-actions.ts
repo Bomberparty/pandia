@@ -1,5 +1,4 @@
 import { ipc } from '$lib/ipc/client';
-import { decodeLossless } from '$lib/ipc/wire';
 import { describeError } from '$lib/ipc/error-copy';
 import type { ContentRow, Row } from './model';
 import { findIndexPaged } from './paging';
@@ -90,11 +89,7 @@ export function createNodeActions(deps: NodeActionDeps) {
 		const handle = deps.handle();
 		if (!handle) return false;
 		try {
-			const text =
-				row.kind === 'string'
-					? String(decodeLossless(await ipc.docGetValue(handle, row.path)))
-					: await ipc.docGetValue(handle, row.path);
-			await navigator.clipboard.writeText(text);
+			await navigator.clipboard.writeText(await ipc.docGetValue(handle, row.path));
 			return true;
 		} catch (e) {
 			deps.setError(describeError(e));

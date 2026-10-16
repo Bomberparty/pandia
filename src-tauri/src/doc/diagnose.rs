@@ -34,7 +34,7 @@ pub struct DiagnosisFix {
     pub warnings: Vec<String>,
 }
 
-pub fn diagnose(text: &str) -> Diagnosis {
+pub fn diagnose(text: &str, fixable: bool) -> Diagnosis {
     if text.trim().is_empty() {
         return Diagnosis {
             title: "Nothing to load".into(),
@@ -44,7 +44,7 @@ pub fn diagnose(text: &str) -> Diagnosis {
         };
     }
 
-    let Err(err) = serde_json::from_str::<serde::de::IgnoredAny>(text) else {
+    let Err(err) = repair::check_json(text) else {
         return Diagnosis {
             title: "This is valid JSON".into(),
             detail: "Nothing to fix — try loading it again.".into(),
@@ -53,7 +53,7 @@ pub fn diagnose(text: &str) -> Diagnosis {
         };
     };
 
-    if let Some(d) = convertible_format(text) {
+    if let Some(d) = fixable.then(|| convertible_format(text)).flatten() {
         return d;
     }
 
@@ -64,7 +64,7 @@ pub fn diagnose(text: &str) -> Diagnosis {
         title,
         detail,
         excerpt: build_excerpt(text, offset, err.line() as u32, err.column() as u32),
-        fix: repair_fix(text),
+        fix: fixable.then(|| repair_fix(text)).flatten(),
     }
 }
 
@@ -149,10 +149,38 @@ fn explain(text: &str, err: &serde_json::Error, offset: usize) -> (String, Strin
             "A backslash must be followed by one of \" \\ / b f n r t or u.".into(),
         );
     }
+    if msg.starts_with("unexpected end of hex escape") || msg.starts_with("lone leading surrogate")
+    {
+        return (
+            "A broken character escape".into(),
+            "A \\u escape holds only half of a character, often an emoji that was cut in two. \
+             Delete it, or repair the file to replace it with �."
+                .into(),
+        );
+    }
     if msg.starts_with("control character") {
         return (
             "A line break inside a string".into(),
             "Strings cannot span lines. Use \\n for a newline and \\t for a tab.".into(),
+        );
+    }
+
+    let mid_word =
+        at.is_some_and(char::is_alphanumeric) && text[..offset].ends_with(char::is_alphanumeric);
+    if msg.starts_with("expected `,` or") && !mid_word && !matches!(at, Some('}' | ']')) {
+        return (
+            "A comma is missing before this".into(),
+            "Items in an object or array are separated by commas. Add a comma between this \
+             and the value before it."
+                .into(),
+        );
+    }
+    if msg.starts_with("expected `:`") {
+        return (
+            "A colon is missing before this".into(),
+            "A property name is followed by a colon and then its value, like \"name\": 1. \
+             Add the colon after the name."
+                .into(),
         );
     }
 
@@ -245,12 +273,8 @@ fn offset_of(text: &str, line: usize, column: usize) -> usize {
     let mut offset = 0;
     for (n, l) in text.split_inclusive('\n').enumerate() {
         if n + 1 == line {
-            let col = column.saturating_sub(1);
-            return offset
-                + l.char_indices()
-                    .nth(col)
-                    .map(|(b, _)| b)
-                    .unwrap_or_else(|| l.trim_end_matches('\n').len());
+            let col = column.saturating_sub(1).min(l.trim_end_matches('\n').len());
+            return offset + l.floor_char_boundary(col);
         }
         offset += l.len();
     }
@@ -299,7 +323,7 @@ mod tests {
     use super::*;
 
     fn d(text: &str) -> Diagnosis {
-        diagnose(text)
+        diagnose(text, true)
     }
 
     #[test]
@@ -469,6 +493,48 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&fix.text).unwrap(),
             serde_json::json!({"a": 1, "b": 2})
         );
+    }
+
+    #[test]
+    fn a_lone_surrogate_is_named_and_offered_a_repair() {
+        let r = d(r#"{"a": "\ud83d"}"#);
+        assert_eq!(r.title, "A broken character escape");
+        let fix = r.fix.expect("repairable");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&fix.text).unwrap(),
+            serde_json::json!({"a": "\u{fffd}"})
+        );
+    }
+
+    #[test]
+    fn a_multi_byte_character_earlier_on_the_line_does_not_move_the_caret() {
+        assert_eq!(
+            d(r#"{"name": "café", "x": }"#).title,
+            "A property has no value"
+        );
+        let r = d(r#"{"n": "😀😀😀", "x": ]}"#).excerpt.expect("excerpt");
+        assert_eq!(r.text.chars().nth(r.caret as usize), Some(']'));
+    }
+
+    #[test]
+    fn a_missing_comma_is_named() {
+        for text in [
+            r#"{"a": 1 "b": 2}"#,
+            "[1 2]",
+            "{\n  \"a\": 1\n  \"b\": 2\n}",
+        ] {
+            let r = d(text);
+            assert_eq!(r.title, "A comma is missing before this", "{text}");
+            assert!(r.detail.contains("Add a comma"), "{}", r.detail);
+        }
+        assert_ne!(d(r#"{"a": 1]"#).title, "A comma is missing before this");
+    }
+
+    #[test]
+    fn a_missing_colon_is_named() {
+        let r = d(r#"{"a" 1}"#);
+        assert_eq!(r.title, "A colon is missing before this");
+        assert!(r.detail.contains("Add the colon"), "{}", r.detail);
     }
 
     #[test]

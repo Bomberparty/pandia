@@ -9,10 +9,26 @@
 	import { writeFile } from '@tauri-apps/plugin-fs';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { untrack } from 'svelte';
+	import { X } from '@lucide/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import type { DocHandle, NodeKind, Path } from '$lib/ipc/bindings';
+	import type { PathKey } from '$lib/views/tree/logic/model';
 	import { describeError } from '$lib/ipc/error-copy';
-	import { layoutGraph, isContainerKind, type CardRow, type GraphCard } from '../logic/layout';
-	import { buildCard, collapseTree, expandRow as expandRowFetch } from '../logic/card-builder';
+	import {
+		layoutGraph,
+		isContainerKind,
+		type CardRow,
+		type GraphCard,
+		type MoreItems,
+	} from '../logic/layout';
+	import {
+		buildCard,
+		collapseTree,
+		expandRow as expandRowFetch,
+		openRows,
+		reopenRows,
+		showMore as showMoreFetch,
+	} from '../logic/card-builder';
 	import { searchCards } from '../logic/card-search';
 	import { paintFullLayout, planRasterExport } from '../logic/render';
 	import { exportLayoutSVG } from '../logic/render-svg';
@@ -26,6 +42,7 @@
 
 	interface Props {
 		handle: DocHandle;
+		version: number;
 		rootKind: NodeKind;
 		rootChildCount: number | null;
 		sourcePath?: string | null;
@@ -36,6 +53,7 @@
 
 	let {
 		handle,
+		version,
 		rootKind,
 		rootChildCount,
 		sourcePath = null,
@@ -57,9 +75,10 @@
 
 	const layout = $derived(root ? layoutGraph(root) : { cards: [], edges: [], width: 0, height: 0 });
 
-	async function initExpand() {
+	async function initExpand(gen: number) {
 		try {
 			const r = await buildCard(handle, [], rootKind);
+			if (gen !== loadGen) return;
 			root = r;
 			if (isContainerKind(rootKind) && (rootChildCount ?? 0) > 0) {
 				let cardCount = 1;
@@ -70,7 +89,7 @@
 					const next: { row: CardRow; depth: number }[] = [];
 					for (const { row, depth } of frontier) {
 						if (cardCount >= CARD_BUDGET || depth > AUTO_DEPTH) break;
-						await expandRowFetch(handle, row);
+						await expandRowFetch(handle, row, CARD_BUDGET - cardCount);
 						cardCount += row.children.length;
 						if (depth < AUTO_DEPTH) {
 							for (const ch of row.children) {
@@ -79,6 +98,7 @@
 							}
 						}
 					}
+					if (gen !== loadGen) return;
 					frontier = next;
 					root = { ...r }; // reveal each BFS layer as it resolves
 					if (animateExpand && frontier.length > 0) {
@@ -94,15 +114,35 @@
 		}
 	}
 
+	async function rebuild(gen: number, open: Map<PathKey, number>) {
+		try {
+			const r = await buildCard(handle, [], rootKind);
+			await reopenRows(handle, r, open);
+			if (gen === loadGen) root = r;
+		} catch (e) {
+			if (gen === loadGen) error = describeError(e);
+		}
+	}
+
 	let initHandle: DocHandle | null = null;
+	let initVersion = 0;
+	let loadGen = 0;
 	$effect(() => {
 		const h = handle;
-		if (h === initHandle) return;
+		const v = version;
+		if (h === initHandle && v === initVersion) return;
+		const prev = h === initHandle ? untrack(() => root) : null;
 		initHandle = h;
-		loading = true;
+		initVersion = v;
 		error = null;
+		const gen = ++loadGen;
+		if (prev) {
+			queueMicrotask(() => void rebuild(gen, openRows(prev)));
+			return;
+		}
+		loading = true;
 		root = null;
-		queueMicrotask(() => void initExpand());
+		queueMicrotask(() => void initExpand(gen));
 	});
 
 	async function toggleRow(row: CardRow) {
@@ -110,6 +150,12 @@
 		if (row.children.length > 0) row.children = [];
 		else await expandRowFetch(handle, row);
 		root = { ...root }; // new identity → re-layout
+	}
+
+	async function showMore(more: MoreItems) {
+		if (!root) return;
+		await showMoreFetch(handle, more);
+		root = { ...root };
 	}
 
 	function collapseAll() {
@@ -147,7 +193,9 @@
 			while (queue.length > 0 && cardCount < EXPAND_ALL_MAX_CARDS) {
 				const room = EXPAND_ALL_MAX_CARDS - cardCount;
 				const batch = queue.splice(0, Math.min(EXPAND_ALL_BATCH, room));
-				await Promise.all(batch.map((row) => expandRowFetch(handle, row)));
+
+				const share = Math.floor(room / batch.length);
+				await Promise.all(batch.map((row) => expandRowFetch(handle, row, share)));
 				for (const row of batch) {
 					cardCount += row.children.length;
 					for (const ch of row.children) {
@@ -290,13 +338,12 @@
 <div class="graph-root">
 	{#if loading && !root}
 		<div class="state dim">building graph…</div>
-	{:else if error}
-		<div class="state err">{error}</div>
 	{:else if root}
 		<GraphCanvas
 			{layout}
 			onPickCard={onPickPath}
 			onPortToggle={(row) => void toggleRow(row)}
+			onShowMore={(more) => void showMore(more)}
 			onScaleChange={(s) => (scale = s)}
 			onReady={(api) => (canvasApi = api)}
 			highlightCardId={searchHighlightId}
@@ -353,6 +400,16 @@
 			onClose={() => (settingsOpen = false)}
 			anchor={settingsBtn}
 		/>
+		{#if error}
+			<div class="notice graph-error" role="alert">
+				<span>{error}</span>
+				<button onclick={() => (error = null)} aria-label="Dismiss error"
+					><Icon icon={X} size="sm" /></button
+				>
+			</div>
+		{/if}
+	{:else if error}
+		<div class="state err">{error}</div>
 	{/if}
 </div>
 
@@ -375,5 +432,28 @@
 	}
 	.err {
 		color: var(--danger);
+	}
+	.graph-error {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		max-width: calc(100% - 2rem);
+		z-index: 4; /* above the search bar, so the dismiss button stays reachable */
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		box-shadow: var(--shadow-pop);
+	}
+	.graph-error button {
+		flex-shrink: 0;
+		display: flex;
+		padding: 0;
+		background: transparent;
+		border: none;
+		color: var(--text-dim);
+		cursor: pointer;
+	}
+	.graph-error button:hover {
+		color: var(--text);
 	}
 </style>

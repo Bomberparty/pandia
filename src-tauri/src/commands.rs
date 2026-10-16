@@ -10,6 +10,7 @@ use crate::doc::document::{
 };
 use crate::doc::export::{ExportFormat, ExportPreview};
 use crate::doc::grid_filter::{self, FilterOp};
+use crate::doc::lazy::parse_json;
 use crate::doc::linediff::{compute_line_diff, line_slice, LineDiffResult, LINE_FETCH_MAX};
 use crate::doc::ops::Op;
 use crate::doc::repair::repair;
@@ -112,7 +113,13 @@ fn open_with_fix_limit(
     };
 
     let fixable = text.len() as u64 <= fix_limit;
-    let starts_like_json = matches!(text.trim_start().chars().next(), Some('{' | '['));
+    let starts_like_json = matches!(
+        text.trim_start_matches('\u{feff}')
+            .trim_start()
+            .chars()
+            .next(),
+        Some('{' | '[')
+    );
     if fixable && !starts_like_json {
         let detected = detect_and_convert(&text);
         if detected.error.is_none()
@@ -142,7 +149,7 @@ fn open_with_fix_limit(
     Ok(OpenOutcome::Failed(OpenFailure {
         detail,
         too_large_to_fix: !fixable,
-        diagnosis: diagnose(&text),
+        diagnosis: diagnose(&text, fixable),
     }))
 }
 
@@ -648,8 +655,7 @@ pub async fn doc_set_root_text(
     }
     let store = state.inner().clone();
     run_blocking(move || {
-        let value: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| DocError::Parse(e.to_string()))?;
+        let value: serde_json::Value = parse_json(&text)?;
         store.write(handle, |doc| {
             doc.apply(&Op::SetValue {
                 path: Path::root(),
@@ -1005,16 +1011,58 @@ mod tests {
     #[test]
     fn text_over_the_fix_limit_fails_without_repairing() {
         let store = DocStore::new();
-        let source = OpenSource::Text {
-            text: CUT_OFF.into(),
-            name: None,
+        for text in [CUT_OFF, "a: 1\nb:\n  - 2\n"] {
+            let source = OpenSource::Text {
+                text: text.into(),
+                name: None,
+            };
+            let outcome =
+                open_with_fix_limit(&store, source, OpenOptions { repair: true }, 10).unwrap();
+            let OpenOutcome::Failed(f) = outcome else {
+                panic!("expected to fail");
+            };
+            assert!(f.too_large_to_fix);
+            assert!(
+                f.diagnosis.fix.is_none(),
+                "no fix is built for text this large"
+            );
+        }
+    }
+
+    const BOM_CUT_NDJSON: &str =
+        "\u{feff}{\"id\":1,\"n\":\"a\"}\n{\"id\":2,\"n\":\"b\"}\n{\"id\":3,\"n\":\"c";
+
+    #[test]
+    fn a_byte_order_mark_does_not_turn_broken_json_into_csv() {
+        let store = DocStore::new();
+        let OpenOutcome::Failed(f) = open_file(&store, "log.json", BOM_CUT_NDJSON, false) else {
+            panic!("expected to fail, not convert");
         };
-        let outcome =
-            open_with_fix_limit(&store, source, OpenOptions { repair: true }, 10).unwrap();
-        let OpenOutcome::Failed(f) = outcome else {
-            panic!("expected to fail");
+        assert!(!f.diagnosis.title.contains("CSV"), "{}", f.diagnosis.title);
+    }
+
+    #[test]
+    fn ndjson_with_a_cut_off_last_line_repairs_into_its_records() {
+        let store = DocStore::new();
+        let OpenOutcome::Opened(doc) = open_file(&store, "log.json", BOM_CUT_NDJSON, true) else {
+            panic!("expected to repair");
         };
-        assert!(f.too_large_to_fix);
+        assert!(doc.notes.converted_from.is_none());
+        assert_eq!(doc.summary.root_child_count, Some(3));
+    }
+
+    #[test]
+    fn a_lone_surrogate_escape_opens_after_repair() {
+        let store = DocStore::new();
+        let OpenOutcome::Opened(doc) = open_file(&store, "emoji.json", r#"{"a": "\ud83d"}"#, true)
+        else {
+            panic!("expected to repair");
+        };
+        assert!(
+            doc.notes.repairs.iter().any(|n| n.contains('\u{fffd}')),
+            "{:?}",
+            doc.notes.repairs
+        );
     }
 
     #[test]

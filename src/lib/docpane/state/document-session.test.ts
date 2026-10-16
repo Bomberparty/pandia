@@ -4,6 +4,7 @@ import { ipc } from '$lib/ipc/client';
 import { DocumentSession, type DocumentSessionDeps } from './document-session.svelte';
 import { inRoot } from '$lib/views/shared/test-runes.svelte';
 import type { CodeViewApi } from '$lib/views/code/CodeView.svelte';
+import type { SearchHit } from '$lib/ipc/bindings';
 
 vi.mock('$lib/ipc/client', () => ({
 	ipc: {
@@ -124,6 +125,97 @@ describe('DocumentSession — one owner for the pane wiring', () => {
 			destroy();
 		} finally {
 			vi.useRealTimers();
+		}
+	});
+});
+
+describe('DocumentSession — Find after an edit', () => {
+	const EDITED = { version: 2, affectedPaths: [] };
+	const hits = (items: number[]): SearchHit[] =>
+		items.map((i) => ({
+			path: ['items', i, 'name'],
+			kind: 'string',
+			matchField: 'value',
+			snippet: 'name',
+		}));
+	const twenty = [...Array(20).keys()];
+	const settle = () => new Promise((r) => setTimeout(r));
+
+	function findOpen(overrides: Partial<DocumentSessionDeps> = {}) {
+		const { result: doc, destroy } = inRoot(() => new DocumentSession(stubDeps(overrides)));
+		doc.session.handle = 'h' as never;
+		doc.find.open = true;
+		doc.find.query = 'name';
+		vi.mocked(ipc.docSummary).mockResolvedValue({ version: 2 } as never);
+		return { doc, destroy };
+	}
+
+	it('keeps the active hit when an edit adds a match before it, without moving the view', async () => {
+		const { doc, destroy } = findOpen();
+		try {
+			const navigateTo = vi.spyOn(doc.nav, 'navigateTo').mockResolvedValue();
+			vi.mocked(ipc.docSearch).mockResolvedValue(hits(twenty));
+			await doc.find.runSearch('name');
+			await doc.find.jumpToHit(6);
+			navigateTo.mockClear();
+
+			vi.mocked(ipc.docSearch).mockResolvedValue(hits([99, ...twenty]));
+			vi.mocked(ipc.docApplyOp).mockResolvedValue(EDITED as never);
+			await doc.session.applyOp({ kind: 'deleteKey', path: [], key: 'x' });
+			await settle();
+
+			expect(doc.find.activeIdx).toBe(7);
+			expect(doc.find.hits[7]?.path).toEqual(['items', 6, 'name']);
+			expect(navigateTo).not.toHaveBeenCalled();
+		} finally {
+			destroy();
+		}
+	});
+
+	it('moves to the nearest remaining hit when an undo removes the active one', async () => {
+		const { doc, destroy } = findOpen();
+		try {
+			const navigateTo = vi.spyOn(doc.nav, 'navigateTo').mockResolvedValue();
+			vi.mocked(ipc.docSearch).mockResolvedValue(hits(twenty));
+			await doc.find.runSearch('name');
+			await doc.find.jumpToHit(6);
+			navigateTo.mockClear();
+
+			vi.mocked(ipc.docSearch).mockResolvedValue(hits(twenty.filter((i) => i !== 6)));
+			vi.mocked(ipc.docUndo).mockResolvedValue(EDITED as never);
+			await doc.session.runHistory(-1);
+			await settle();
+
+			expect(doc.find.hits[doc.find.activeIdx]?.path).toEqual(['items', 7, 'name']);
+			expect(navigateTo).not.toHaveBeenCalled();
+		} finally {
+			destroy();
+		}
+	});
+
+	it('in Code view, recounts the matches in the editor and stays in Code view', async () => {
+		const cmCount = vi.fn(() => 2);
+		const api = { cmCount } as unknown as CodeViewApi;
+		const { doc, destroy } = findOpen({ code: { api: () => api, dirty: () => false } });
+		try {
+			vi.mocked(ipc.docSearch).mockResolvedValue(hits(twenty));
+			await doc.find.runSearch('name');
+			doc.viewMode = 'code';
+
+			vi.mocked(ipc.docSearch).mockClear();
+			vi.mocked(ipc.docSetRootText).mockResolvedValue(EDITED as never);
+			await doc.session.commitText('{"items": []}');
+			await settle();
+
+			expect(doc.viewMode).toBe('code');
+			expect(doc.find.codeMatchCount).toBe(2);
+
+			// The tree hits predate the edit, so going back to Tree searches again.
+			await doc.switchView('tree');
+			doc.find.syncActiveView();
+			expect(ipc.docSearch).toHaveBeenCalledTimes(1);
+		} finally {
+			destroy();
 		}
 	});
 });

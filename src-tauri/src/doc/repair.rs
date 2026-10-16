@@ -97,7 +97,7 @@ pub fn deep_unescape(text: &str, max_iterations: u32) -> DeepUnescapeResult {
             break;
         }
     }
-    match serde_json::from_str::<serde::de::IgnoredAny>(&current) {
+    match check_json(&current) {
         Ok(_) => DeepUnescapeResult {
             result: current,
             iterations,
@@ -118,8 +118,56 @@ fn structure_is_escaped(body: &str) -> bool {
         .starts_with('\\')
 }
 
+// IgnoredAny skips `\u` escape checks, so a lone surrogate passed it and then failed to load.
+// This decodes every string the way loading does, without building a tree.
+struct Checked;
+
+impl<'de> serde::Deserialize<'de> for Checked {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(Checked)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for Checked {
+    type Value = Checked;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a JSON value")
+    }
+    fn visit_bool<E>(self, _: bool) -> Result<Checked, E> {
+        Ok(Checked)
+    }
+    fn visit_i64<E>(self, _: i64) -> Result<Checked, E> {
+        Ok(Checked)
+    }
+    fn visit_u64<E>(self, _: u64) -> Result<Checked, E> {
+        Ok(Checked)
+    }
+    fn visit_f64<E>(self, _: f64) -> Result<Checked, E> {
+        Ok(Checked)
+    }
+    fn visit_str<E>(self, _: &str) -> Result<Checked, E> {
+        Ok(Checked)
+    }
+    fn visit_unit<E>(self) -> Result<Checked, E> {
+        Ok(Checked)
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Checked, A::Error> {
+        while seq.next_element::<Checked>()?.is_some() {}
+        Ok(Checked)
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Checked, A::Error> {
+        while map.next_entry::<Checked, Checked>()?.is_some() {}
+        Ok(Checked)
+    }
+}
+
+pub fn check_json(text: &str) -> serde_json::Result<()> {
+    serde_json::from_str::<Checked>(text).map(|_| ())
+}
+
 fn is_valid(text: &str) -> bool {
-    serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
+    check_json(text).is_ok()
 }
 
 pub fn repair(input: &str) -> Option<Repaired> {
@@ -202,9 +250,11 @@ struct Notes {
     quoted_keys: u32,
     nulled: u32,
     escapes: u32,
+    lone_surrogates: u32,
     controls: u32,
     mismatched: u32,
     extra_closers: u32,
+    records: u32,
     cut_in_string: bool,
     dropped_keys: u32,
     closed: u32,
@@ -304,6 +354,14 @@ impl Notes {
             ),
         );
         add(
+            self.lone_surrogates > 0,
+            count(
+                self.lone_surrogates,
+                "Replaced a broken character escape with �.",
+                "Replaced {n} broken character escapes with �.",
+            ),
+        );
+        add(
             self.controls > 0,
             count(
                 self.controls,
@@ -326,6 +384,10 @@ impl Notes {
                 "Removed a closing bracket with nothing to close.",
                 "Removed {n} closing brackets with nothing to close.",
             ),
+        );
+        add(
+            self.records > 1,
+            format!("Joined {} records into an array.", self.records),
         );
         add(
             self.cut_in_string,
@@ -371,6 +433,8 @@ struct Scanner<'a> {
     out: Vec<u8>,
     stack: Vec<Frame>,
     pending_comma: bool,
+    records: u32,
+    first_start: usize,
     notes: &'a mut Notes,
 }
 
@@ -382,6 +446,8 @@ impl<'a> Scanner<'a> {
             out: Vec::with_capacity(src.len() + 16),
             stack: Vec::new(),
             pending_comma: false,
+            records: 0,
+            first_start: 0,
             notes,
         }
     }
@@ -466,6 +532,9 @@ impl<'a> Scanner<'a> {
     }
 
     fn begin_token(&mut self) {
+        if self.stack.is_empty() {
+            self.start_record();
+        }
         let key = self.in_key_position();
         if key {
             let start = self.out.len();
@@ -477,6 +546,19 @@ impl<'a> Scanner<'a> {
             self.out.push(b',');
             self.pending_comma = false;
         }
+    }
+
+    // Back-to-back top-level values, like NDJSON, only load as one document inside an array.
+    fn start_record(&mut self) {
+        match self.records {
+            0 => self.first_start = self.out.len(),
+            1 => {
+                self.out.insert(self.first_start, b'[');
+                self.out.push(b',');
+            }
+            _ => self.out.push(b','),
+        }
+        self.records += 1;
     }
 
     fn after_value(&mut self) {
@@ -543,12 +625,16 @@ impl<'a> Scanner<'a> {
             self.out.extend_from_slice(b"\\\\");
             return;
         };
-        let hex4 = next == b'u'
-            && self
-                .src
-                .get(self.i + 1..self.i + 5)
-                .is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit));
-        if matches!(next, b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') || hex4 {
+        let unit = if next == b'u' {
+            self.hex4_at(self.i + 1)
+        } else {
+            None
+        };
+        if let Some(unit @ 0xD800..=0xDFFF) = unit {
+            self.surrogate(unit);
+        } else if matches!(next, b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't')
+            || unit.is_some()
+        {
             self.out.push(b'\\');
             self.out.push(next);
             self.i += 1;
@@ -558,6 +644,30 @@ impl<'a> Scanner<'a> {
         } else {
             self.notes.escapes += 1;
             self.out.extend_from_slice(b"\\\\");
+        }
+    }
+
+    fn hex4_at(&self, at: usize) -> Option<u16> {
+        self.src
+            .get(at..at + 4)?
+            .iter()
+            .try_fold(0, |n, &d| Some(n << 4 | (d as char).to_digit(16)? as u16))
+    }
+
+    // Only a high surrogate followed straight away by a low one decodes; any other
+    // surrogate fails to load, so it becomes U+FFFD.
+    fn surrogate(&mut self, unit: u16) {
+        let paired = unit < 0xDC00
+            && self.src.get(self.i + 5..self.i + 7) == Some(b"\\u".as_slice())
+            && matches!(self.hex4_at(self.i + 7), Some(0xDC00..=0xDFFF));
+        if paired {
+            self.out.push(b'\\');
+            self.out.extend_from_slice(&self.src[self.i..self.i + 11]);
+            self.i += 11;
+        } else {
+            self.notes.lone_surrogates += 1;
+            self.out.extend_from_slice("\u{fffd}".as_bytes());
+            self.i += 5;
         }
     }
 
@@ -675,6 +785,10 @@ impl<'a> Scanner<'a> {
             self.out.push(if frame.object { b'}' } else { b']' });
             self.notes.closed += 1;
             self.after_value();
+        }
+        if self.records > 1 {
+            self.out.push(b']');
+            self.notes.records = self.records;
         }
     }
 }
@@ -928,6 +1042,28 @@ mod tests {
         assert_eq!(v["a"], "line one\nline two");
         assert!(notes
             .contains(&"Escaped a line break or control character inside a string.".to_string()));
+    }
+
+    #[test]
+    fn a_lone_surrogate_escape_becomes_a_replacement_character() {
+        let (v, notes) = fixed(r#"{"a": "\ud83d", "b": "\udc00x", "ok": "😀"}"#);
+        assert_eq!(v["a"], "\u{fffd}");
+        assert_eq!(v["b"], "\u{fffd}x");
+        assert_eq!(v["ok"], "😀");
+        assert_eq!(notes, ["Replaced 2 broken character escapes with �."]);
+    }
+
+    #[test]
+    fn ndjson_with_a_cut_off_last_line_joins_into_an_array() {
+        let (v, notes) = fixed("{\"id\":1}\n{\"id\":2}\n{\"id\":3,\"n\":\"c");
+        assert_eq!(
+            v,
+            serde_json::json!([{"id": 1}, {"id": 2}, {"id": 3, "n": "c"}])
+        );
+        assert!(
+            notes.contains(&"Joined 3 records into an array.".to_string()),
+            "{notes:?}"
+        );
     }
 
     #[test]

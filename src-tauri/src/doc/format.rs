@@ -178,7 +178,7 @@ enum Attempt {
 }
 
 fn is_valid_json(text: &str) -> bool {
-    serde_json::from_str::<IgnoredAny>(text).is_ok()
+    super::lazy::parse_json::<IgnoredAny>(text).is_ok()
 }
 
 fn top_level_spans(text: &str) -> Vec<(usize, usize)> {

@@ -6,12 +6,8 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
-// Set on the app process the launcher starts, so that process opens the window instead of
-// launching again.
 pub(crate) const LAUNCHED_ENV: &str = "PANDIA_LAUNCHED";
 
-// The launcher and the app may be different processes, so piped input and `--wait` results
-// travel through temp files. The app only reads, deletes or writes files with these prefixes.
 const STDIN_PREFIX: &str = "pandia-stdin-";
 const WAIT_PREFIX: &str = "pandia-wait-";
 const REPLY_PREFIX: &str = "pandia-reply-";
@@ -49,7 +45,6 @@ pub(crate) struct PendingFile {
     pub schema: Option<String>,
     pub compare_with: Option<String>,
     pub wait: Option<String>,
-    // Where Save sends piped input back to a waiting terminal.
     pub reply: Option<String>,
 }
 
@@ -66,19 +61,15 @@ impl PendingFile {
     }
 }
 
-/// What happened to one tab a `--wait` launch opened, reported when the tab closes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TabReport {
-    // None for piped input.
     pub path: Option<String>,
     pub opened: bool,
     pub saved: bool,
-    // None when no schema validated the tab.
     pub valid: Option<bool>,
     pub error_count: u32,
     pub errors: Vec<ReportError>,
-    // Why the file didn't open, or why its schema couldn't be used.
     pub problem: Option<String>,
 }
 
@@ -160,8 +151,6 @@ fn parse(args: impl IntoIterator<Item = String>) -> Request {
     req
 }
 
-// A relative path on the command line means "relative to where the command ran", which
-// only the launching process knows, so it is made absolute here. URLs pass through.
 fn resolve_reference(reference: &str, cwd: &Path) -> String {
     if reference.contains("://") || Path::new(reference).is_absolute() {
         return reference.to_string();
@@ -180,7 +169,6 @@ pub(crate) fn is_stdin_handoff(path: &str) -> bool {
     is_handoff(path, STDIN_PREFIX)
 }
 
-/// Turns the arguments of a launch into the tabs to open, registering its hand-off files.
 pub(crate) fn pending_from(
     args: impl IntoIterator<Item = String>,
     cwd: &Path,
@@ -227,8 +215,6 @@ pub(crate) fn is_reply(handoffs: &Handoffs, path: &str) -> bool {
     handoffs.lock().replies.iter().any(|p| p == path)
 }
 
-/// The hand-off files of every launch: the tabs each `--wait` is waiting on, and piped input,
-/// which stays on disk while its tab is open so auto-repair can read it again.
 #[derive(Default)]
 pub(crate) struct Handoffs(Mutex<HandoffFiles>);
 
@@ -290,8 +276,6 @@ fn finish_wait(id: &str, files: Vec<TabReport>) {
     }
 }
 
-/// Runs when `pandia …` is typed in a terminal: hands the request to the app in a detached
-/// process, so the shell gets its prompt back and closing the terminal doesn't quit Pandia.
 pub(crate) fn launch(args: Vec<String>) -> i32 {
     let req = parse(args.iter().cloned());
     if req.help {
@@ -354,8 +338,6 @@ fn hand_off(req: &Request, args: Vec<String>) -> Result<(i32, String), String> {
     Ok(finish(report, reply_text, req.json))
 }
 
-/// Turns what the app reported into the exit code and what the terminal prints. `reply` is the
-/// saved piped input when the launch piped some in, empty if it was closed without saving.
 fn finish(mut report: WaitReport, reply: Option<String>, json: bool) -> (i32, String) {
     let reply = reply.map(|text| (!text.trim().is_empty()).then_some(text));
     let unsent = matches!(reply, Some(None));
@@ -374,7 +356,7 @@ fn finish(mut report: WaitReport, reply: Option<String>, json: bool) -> (i32, St
     report.exit_code = code;
     let mut value = serde_json::to_value(&report).unwrap_or_default();
     if let (Some(text), Some(files)) = (content, value["files"].as_array_mut()) {
-        let parsed = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
+        let parsed = crate::doc::lazy::parse_json(&text).unwrap_or(serde_json::Value::String(text));
         if let Some(stdin_tab) = files.iter_mut().find(|f| f["path"].is_null()) {
             stdin_tab["content"] = parsed;
         }
@@ -412,7 +394,6 @@ fn save_stdin() -> Result<PathBuf, String> {
     }
 }
 
-// Piped input can be a secret, and /tmp on Linux is shared by every user on the machine.
 fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -424,15 +405,12 @@ fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
-/// The file that starts Pandia. An AppImage's own files disappear when its first process
-/// exits, so on Linux the AppImage itself is started instead.
 pub(crate) fn app_executable() -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     if let Some(appimage) = std::env::var_os("APPIMAGE") {
         return Some(appimage.into());
     }
     let exe = std::env::current_exe().ok()?;
-    // Windows canonical paths carry a \\?\ prefix that other tools don't accept.
     #[cfg(not(windows))]
     let exe = exe.canonicalize().ok()?;
     Some(exe)
@@ -461,7 +439,6 @@ fn spawn_app(args: &[String]) -> Result<(), String> {
     cmd.spawn().map(drop).map_err(|_| failed())
 }
 
-// A half-written report doesn't parse yet, so it is read again on the next tick.
 fn wait_for(marker: &Path) -> WaitReport {
     loop {
         std::thread::sleep(Duration::from_millis(250));

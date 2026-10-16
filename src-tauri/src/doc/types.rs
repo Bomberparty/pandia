@@ -145,6 +145,9 @@ pub enum DocError {
     #[error("line range too large: {lines} lines requested (limit {limit} per call)")]
     RangeTooLarge { lines: u32, limit: u32 },
 
+    #[error("nested deeper than {limit} levels")]
+    TooDeep { limit: u32 },
+
     #[error("parse error: {0}")]
     Parse(String),
 
@@ -252,6 +255,7 @@ pub enum ErrorKind {
     InvalidPath,
     TooLarge,
     RangeTooLarge,
+    TooDeep,
     Parse,
     Edit,
     Schema,
@@ -273,6 +277,13 @@ impl From<DocError> for WireError {
                 None,
                 None,
                 Some(u64::from(*lines)),
+                Some(u64::from(*limit)),
+            ),
+            DocError::TooDeep { limit } => (
+                ErrorKind::TooDeep,
+                None,
+                None,
+                None,
                 Some(u64::from(*limit)),
             ),
             DocError::Parse(s) => (ErrorKind::Parse, Some(s.clone()), None, None, None),
@@ -417,6 +428,14 @@ mod tests {
         assert!(json.contains("\"kind\":\"tooLarge\""));
         assert!(json.contains("\"actual\":2147483649"));
         assert!(json.contains("\"limit\":2147483648"));
+    }
+
+    #[test]
+    fn wire_error_too_deep_has_own_kind_and_limit() {
+        let json =
+            serde_json::to_string(&WireError::from(DocError::TooDeep { limit: 1000 })).unwrap();
+        assert!(json.contains("\"kind\":\"tooDeep\""));
+        assert!(json.contains("\"limit\":1000"));
     }
 
     #[test]

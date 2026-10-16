@@ -60,7 +60,10 @@ export class TabSlot {
 		return this.workspace.isHandleAlive(handle);
 	}
 
-	/** Asks about unsaved work the way closing the tab does; false means keep the document. */
+	versionOf(handle: DocHandle): number | null {
+		return this.workspace.versionOf(handle);
+	}
+
 	resolveUnsaved(): Promise<boolean> {
 		return this.workspace.resolveUnsaved([this.tabId]);
 	}
@@ -119,6 +122,12 @@ export class Workspace {
 
 	isHandleAlive(handle: DocHandle): boolean {
 		return Object.values(this.views).some((v) => v.context?.handle === handle);
+	}
+
+	versionOf(handle: DocHandle): number | null {
+		return (
+			Object.values(this.views).find((v) => v.context?.handle === handle)?.context?.version ?? null
+		);
 	}
 
 	async open(

@@ -148,7 +148,7 @@ export type DiffKind = "added" | "removed" | "changed" | "moved";
 
 export type DocHandle = string;
 
-export type ErrorKind = "notFound" | "invalidPath" | "tooLarge" | "rangeTooLarge" | "parse" | "edit" | "schema" | "export" | "io" | "cancelled";
+export type ErrorKind = "notFound" | "invalidPath" | "tooLarge" | "rangeTooLarge" | "tooDeep" | "parse" | "edit" | "schema" | "export" | "io" | "cancelled";
 
 export type ExportFormat = "json" | "json-min" | "yaml" | "csv" | "xml";
 

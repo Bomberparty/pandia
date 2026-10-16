@@ -315,19 +315,31 @@
 			if (instructions?.compareWith) {
 				void compare.start({ kind: 'path', path: instructions.compareWith });
 			}
-			await autoloadSchema(
-				{
-					tabId,
-					handle: session.handle,
-					version: s.version,
-					path: s.sourcePath,
-					rootIsObject: s.rootKind === 'object',
-					cliSchema: instructions?.schema ?? null,
-				},
-				confirmSchemaFetch,
-			);
+			await loadDocSchema(instructions?.schema ?? null);
 		})();
 	});
+
+	function loadDocSchema(cliSchema: string | null): Promise<void> {
+		const s = session.summary;
+		if (!session.handle || !s) return Promise.resolve();
+		return autoloadSchema(
+			{
+				tabId,
+				handle: session.handle,
+				version: s.version,
+				path: s.sourcePath,
+				rootIsObject: s.rootKind === 'object',
+				cliSchema,
+			},
+			confirmSchemaFetch,
+		);
+	}
+
+	async function openInPlace(opening: Promise<boolean>): Promise<boolean> {
+		const opened = await opening;
+		if (opened) void loadDocSchema(null);
+		return opened;
+	}
 
 	async function readString(path: Path): Promise<string | null> {
 		if (!session.handle) return null;
@@ -485,10 +497,10 @@
 	{#if !session.summary}
 		<EmptyState
 			busy={doc.busy}
-			onOpenSource={session.loadFromSource}
+			onOpenSource={(source) => openInPlace(session.loadFromSource(source))}
 			onOpenFile={(path) => onOpenInNewTab({ kind: 'file', path })}
 			diagnosis={session.diagnosis}
-			onFixDiagnosis={(t) => void session.applyDiagnosisFix(t)}
+			onFixDiagnosis={(t) => void openInPlace(session.applyDiagnosisFix(t))}
 			onDismissDiagnosis={() => (session.diagnosis = null)}
 		/>
 	{:else if doc.viewMode === 'tree'}
@@ -550,6 +562,8 @@
 			rightSourceSize={compare.summary.sourceSize}
 			leftName={session.sourceName ?? 'left'}
 			rightName={compare.sourceName ?? 'right'}
+			leftVersion={session.summary.version}
+			rightVersion={slot.versionOf(compare.handle) ?? compare.summary.version}
 			staleSource={compare.staleSource}
 			onExit={() => void compare.exit()}
 		/>
@@ -586,6 +600,7 @@
 	{:else if doc.viewMode === 'graph' && session.handle}
 		<GraphView
 			handle={session.handle}
+			version={session.summary.version}
 			rootKind={session.summary.rootKind}
 			rootChildCount={session.summary.rootChildCount}
 			sourcePath={session.summary.sourcePath}

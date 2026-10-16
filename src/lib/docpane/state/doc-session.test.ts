@@ -40,7 +40,7 @@ function setup(findOpen: boolean) {
 	const find = {
 		open: findOpen,
 		query: 'needle',
-		runSearch: vi.fn(async () => {
+		refreshAfterEdit: vi.fn(() => {
 			calls.push('find');
 		}),
 		reset: vi.fn(),
@@ -101,7 +101,7 @@ describe('DocSessionController — the post-mutation protocol', () => {
 		const { session, calls, find } = setup(false);
 		await session.applyOp({ kind: 'deleteKey', path: [], key: 'x' });
 		expect(calls).toEqual(['summary', 'refetch']);
-		expect(find.runSearch).not.toHaveBeenCalled();
+		expect(find.refreshAfterEdit).not.toHaveBeenCalled();
 	});
 
 	it('an exhausted undo stack short-circuits the protocol', async () => {

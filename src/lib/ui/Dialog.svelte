@@ -16,14 +16,21 @@
 		}
 	}
 
+	let pressedScrim = false;
+
 	function onScrimClick(e: MouseEvent) {
-		if (e.target === e.currentTarget) onClose();
+		if (pressedScrim && e.target === e.currentTarget) onClose();
 	}
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="scrim" onclick={onScrimClick} role="presentation">
+<div
+	class="scrim"
+	onmousedown={(e) => (pressedScrim = e.target === e.currentTarget)}
+	onclick={onScrimClick}
+	role="presentation"
+>
 	{@render children()}
 </div>
 

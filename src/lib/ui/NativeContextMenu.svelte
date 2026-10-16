@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { EditorView } from '@codemirror/view';
+	import { selectAll } from '@codemirror/commands';
 	import { BLOCK_CONTEXT_MENU } from '$lib/util/flags';
 
 	type Editable = HTMLInputElement | HTMLTextAreaElement;
@@ -12,6 +14,7 @@
 	let canPaste = $state(false);
 	let canSelectAll = $state(false);
 	let editableTarget: Editable | null = $state(null);
+	let editorTarget: EditorView | null = $state(null);
 	let selectAllTarget: HTMLElement | null = $state(null);
 
 	function isEditable(el: EventTarget | null): el is Editable {
@@ -22,14 +25,25 @@
 		return window.getSelection()?.toString() ?? '';
 	}
 
+	function getEditorSelectionText(view: EditorView): string {
+		const { from, to } = view.state.selection.main;
+		return view.state.sliceDoc(from, to);
+	}
+
 	function close() {
 		open = false;
 		editableTarget = null;
+		editorTarget = null;
 		selectAllTarget = null;
 	}
 
+	function onMenuMousedown(e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+	}
+
 	async function doCopy() {
-		const text = getSelectionText();
+		const text = editorTarget ? getEditorSelectionText(editorTarget) : getSelectionText();
 		if (text) {
 			try {
 				await navigator.clipboard.writeText(text);
@@ -50,6 +64,18 @@
 	}
 
 	async function doCut() {
+		const editor = editorTarget;
+		if (editor) {
+			const { from, to } = editor.state.selection.main;
+			try {
+				await navigator.clipboard.writeText(editor.state.sliceDoc(from, to));
+				editor.dispatch({ changes: { from, to }, userEvent: 'delete.cut' });
+			} catch {
+				// ignore
+			}
+			close();
+			return;
+		}
 		if (!editableTarget) {
 			close();
 			return;
@@ -71,6 +97,20 @@
 	}
 
 	async function doPaste() {
+		const editor = editorTarget;
+		if (editor) {
+			try {
+				const text = await navigator.clipboard.readText();
+				editor.dispatch(editor.state.replaceSelection(text), {
+					userEvent: 'input.paste',
+					scrollIntoView: true,
+				});
+			} catch {
+				// ignore
+			}
+			close();
+			return;
+		}
 		if (!editableTarget) {
 			close();
 			return;
@@ -90,7 +130,9 @@
 	}
 
 	function doSelectAll() {
-		if (editableTarget) {
+		if (editorTarget) {
+			selectAll(editorTarget);
+		} else if (editableTarget) {
 			editableTarget.select();
 		} else if (selectAllTarget) {
 			const sel = window.getSelection();
@@ -109,14 +151,16 @@
 
 		const onContextMenu = (e: MouseEvent) => {
 			const target = e.target as HTMLElement | null;
-			// Inputs/textareas only — anywhere else we just suppress the native
+			// Inputs/textareas and the code editor only — anywhere else we just suppress the native
 			// menu and don't show our own. (Selectable read-only text gets its
 			// Copy via ⌘C; we don't want to wrap every DOM string in a menu.)
 			const editable = isEditable(target) ? target : null;
-			const selectionText = getSelectionText();
+			const cm = target?.isContentEditable ? target.closest<HTMLElement>('.cm-editor') : null;
+			const editor = cm && EditorView.findFromDOM(cm);
+			const selectionText = editor ? getEditorSelectionText(editor) : getSelectionText();
 
 			// If there's literally nothing to do, just kill the native menu.
-			if (!editable && !selectionText) {
+			if (!editable && !editor && !selectionText) {
 				e.preventDefault();
 				return;
 			}
@@ -125,15 +169,17 @@
 			x = e.clientX;
 			y = e.clientY;
 			editableTarget = editable;
+			editorTarget = editor;
 			selectAllTarget = editable ?? target;
 			canCopy =
 				!!selectionText || !!(editable && editable.selectionStart !== editable.selectionEnd);
 			canCut =
-				!!editable &&
-				editable.selectionStart !== null &&
-				editable.selectionStart !== editable.selectionEnd;
-			canPaste = !!editable;
-			canSelectAll = !!editable || (target?.textContent?.length ?? 0) > 0;
+				(!!editor && !!selectionText) ||
+				(!!editable &&
+					editable.selectionStart !== null &&
+					editable.selectionStart !== editable.selectionEnd);
+			canPaste = !!editable || !!editor;
+			canSelectAll = !!editable || !!editor || (target?.textContent?.length ?? 0) > 0;
 			open = true;
 		};
 
@@ -161,6 +207,7 @@
 		style="left: {x}px; top: {y}px"
 		role="menu"
 		tabindex="-1"
+		onmousedown={onMenuMousedown}
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => e.key === 'Escape' && close()}
 	>

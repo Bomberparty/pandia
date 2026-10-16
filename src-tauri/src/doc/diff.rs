@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use imara_diff::{Algorithm, Diff, InternedInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -262,16 +263,16 @@ fn align_middle<'a>(a: &'a [Value], b: &'a [Value], base: usize) -> Vec<ArrOp<'a
 
     const CELL_CAP: usize = 100_000;
     if n.saturating_mul(m) > CELL_CAP {
-        let common = n.min(m);
-        for i in 0..common {
-            ops.push(ArrOp::Remove(base + i, &a[i]));
-            ops.push(ArrOp::Add(base + i, &b[i]));
-        }
-        for i in common..n {
-            ops.push(ArrOp::Remove(base + i, &a[i]));
-        }
-        for j in common..m {
-            ops.push(ArrOp::Add(base + j, &b[j]));
+        let mut input = InternedInput::default();
+        input.update_before(a.iter());
+        input.update_after(b.iter());
+        for hunk in Diff::compute(Algorithm::Histogram, &input).hunks() {
+            for i in hunk.before {
+                ops.push(ArrOp::Remove(base + i as usize, &a[i as usize]));
+            }
+            for j in hunk.after {
+                ops.push(ArrOp::Add(base + j as usize, &b[j as usize]));
+            }
         }
         return ops;
     }
@@ -546,6 +547,33 @@ mod tests {
         assert_eq!(moved.from_index, Some(0));
         assert_eq!(added.path, segs(&["3"]));
         assert_eq!(added.from_index, None);
+    }
+
+    #[test]
+    fn shifted_rows_still_align_past_the_cell_cap() {
+        let insert_and_edit = |n: usize| {
+            let left: Vec<Value> = (0..n)
+                .map(|i| json!({"id": i, "name": format!("row {i}"), "ok": true}))
+                .collect();
+            let mut right = left.clone();
+            right.insert(5, json!({"id": "new"}));
+            right[n - 4]["name"] = json!("edited");
+            diff(Value::Array(left), Value::Array(right))
+                .into_iter()
+                .map(|e| (e.kind, e.path))
+                .collect::<Vec<_>>()
+        };
+        let exact = insert_and_edit(300);
+        let capped = insert_and_edit(1000);
+        assert_eq!(capped.len(), exact.len());
+        assert_eq!(
+            capped,
+            vec![
+                (DiffKind::Added, segs(&["5"])),
+                (DiffKind::Removed, segs(&["995"])),
+                (DiffKind::Added, segs(&["996"])),
+            ]
+        );
     }
 
     #[test]

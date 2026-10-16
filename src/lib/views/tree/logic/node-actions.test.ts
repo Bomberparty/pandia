@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ipc } from '$lib/ipc/client';
+import { asLosslessText } from '$lib/ipc/wire';
 import type { Op, Path } from '$lib/ipc/bindings';
 import type { PromptController } from '$lib/ui/prompt.svelte';
 import { createNodeActions, type CutMark } from './node-actions';
 import type { ContentRow } from './model';
 
-vi.mock('$lib/ipc/client', () => ({ ipc: {} }));
+vi.mock('$lib/ipc/client', () => ({ ipc: { docGetValue: vi.fn() } }));
 
 const TEXT = '{"id": 7}';
 
@@ -74,5 +76,23 @@ describe('paste after cut moves the value', () => {
 		await actions.paste(row(['list', 0]));
 		expect(ops).toEqual([]);
 		expect(setError).toHaveBeenCalled();
+	});
+});
+
+describe('copy then paste', () => {
+	it.each(['"hello"', '"42"'])('pastes the string %s back unchanged', async (json) => {
+		let clipboard = '';
+		vi.stubGlobal('navigator', {
+			clipboard: {
+				writeText: async (t: string) => void (clipboard = t),
+				readText: async () => clipboard,
+			},
+		});
+		vi.mocked(ipc.docGetValue).mockResolvedValue(asLosslessText(json));
+		const { actions, ops, setError } = setup(['other']);
+		await actions.copy({ ...row(['list', 3]), kind: 'string' });
+		await actions.paste(row(['list', 0]));
+		expect(setError).not.toHaveBeenCalled();
+		expect(ops).toEqual([{ kind: 'insertItemText', path: ['list'], index: 1, text: json }]);
 	});
 });

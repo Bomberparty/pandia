@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use super::lazy::parse_json;
 use super::types::{DocError, DocResult, Path, PathSegment};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
@@ -279,7 +280,7 @@ fn apply_set_value(root: &mut Value, path: &Path, new_value: Value) -> DocResult
 }
 
 fn apply_set_value_text(root: &mut Value, path: &Path, text: &str) -> DocResult<OpOutcome> {
-    let value: Value = serde_json::from_str(text).map_err(|e| DocError::Parse(e.to_string()))?;
+    let value: Value = parse_json(text)?;
     apply_set_value(root, path, value)
 }
 
@@ -408,7 +409,7 @@ fn apply_insert_item_text(
     index: usize,
     text: &str,
 ) -> DocResult<OpOutcome> {
-    let value: Value = serde_json::from_str(text).map_err(|e| DocError::Parse(e.to_string()))?;
+    let value: Value = parse_json(text)?;
     apply_insert_item(root, path, index, value)
 }
 
@@ -419,7 +420,7 @@ fn apply_insert_key_text(
     text: &str,
     position: Option<usize>,
 ) -> DocResult<OpOutcome> {
-    let value: Value = serde_json::from_str(text).map_err(|e| DocError::Parse(e.to_string()))?;
+    let value: Value = parse_json(text)?;
     apply_insert_key(root, path, key, value, position)
 }
 
@@ -1356,7 +1357,6 @@ mod tests {
 
     #[test]
     fn duplicate_item_copies_value_and_inverse_removes_it() {
-        // Parse from text so the 19-digit int is a real arbitrary-precision Number.
         let mut v: Value = serde_json::from_str("[123456789012345678, 2]").unwrap();
         let out = Op::DuplicateItem {
             path: root(),

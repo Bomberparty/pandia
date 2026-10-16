@@ -28,10 +28,22 @@ const KEYS_BY_COMMAND = new Map<string, string>(
 	HERE.map((s) => [s.command, `⌘${s.alt ? '⌥' : ''}${s.shift ? '⇧' : ''}${s.key}`]),
 );
 
+const TEXT_FIELD_COMBOS = new Set(['KeyZ', 'Shift+KeyZ', 'Shift+KeyV']);
+
+function isTextField(el: EventTarget | null): boolean {
+	return (
+		el instanceof HTMLInputElement ||
+		el instanceof HTMLTextAreaElement ||
+		(el instanceof HTMLElement && el.isContentEditable)
+	);
+}
+
 export function matchShortcut(e: KeyboardEvent): string | null {
 	if (isMac) return null;
 	if (!e.ctrlKey || e.metaKey) return null;
-	return COMMAND_BY_COMBO.get(combo(e.altKey, e.shiftKey, e.code)) ?? null;
+	const pressed = combo(e.altKey, e.shiftKey, e.code);
+	if (TEXT_FIELD_COMBOS.has(pressed) && isTextField(e.target)) return null;
+	return COMMAND_BY_COMBO.get(pressed) ?? null;
 }
 
 export function shortcutKeys(command: string): string | null {

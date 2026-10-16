@@ -180,7 +180,7 @@ export class DocSessionController {
 		await this.refreshSummary();
 		await this.deps.tree.refetchAfterOp(result.affectedPaths);
 		if (this.deps.find.open && this.deps.find.query.trim()) {
-			void this.deps.find.runSearch(this.deps.find.query);
+			this.deps.find.refreshAfterEdit();
 		}
 	};
 

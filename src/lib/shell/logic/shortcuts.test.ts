@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { SHORTCUTS } from '$lib/ipc/bindings';
 import { buildShellCommands, type ShellCommandDeps } from './app-commands';
@@ -74,5 +75,39 @@ describe('matchShortcut — Ctrl shortcuts off macOS', () => {
 		expect(matchShortcut(key('KeyS', { altKey: true }))).toBeNull();
 		expect(matchShortcut(key('KeyF', { altKey: true }))).toBeNull();
 		expect(matchShortcut(key('KeyJ'))).toBeNull();
+	});
+});
+
+describe('matchShortcut — in a text field', () => {
+	// jsdom has no isContentEditable.
+	Object.defineProperty(HTMLElement.prototype, 'isContentEditable', {
+		get(this: HTMLElement) {
+			return this.closest('[contenteditable="true"]') !== null;
+		},
+	});
+	const editable = document.createElement('div');
+	editable.setAttribute('contenteditable', 'true');
+	const fields = [
+		['input', document.createElement('input')],
+		['textarea', document.createElement('textarea')],
+		['contenteditable', editable],
+	] as const;
+
+	it.each(fields)('leaves undo, redo and plain paste to a focused %s', (_, target) => {
+		expect(matchShortcut(key('KeyZ', { target }))).toBeNull();
+		expect(matchShortcut(key('KeyZ', { shiftKey: true, target }))).toBeNull();
+		expect(matchShortcut(key('KeyV', { shiftKey: true, target }))).toBeNull();
+	});
+
+	it.each(fields)('still runs other app shortcuts from a focused %s', (_, target) => {
+		expect(matchShortcut(key('KeyS', { target }))).toBe('doc.save');
+		expect(matchShortcut(key('KeyK', { target }))).toBe('palette.toggle');
+	});
+
+	it('runs undo, redo and the schema panel outside text fields', () => {
+		const target = document.createElement('div');
+		expect(matchShortcut(key('KeyZ', { target }))).toBe('doc.undo');
+		expect(matchShortcut(key('KeyZ', { shiftKey: true, target }))).toBe('doc.redo');
+		expect(matchShortcut(key('KeyV', { shiftKey: true, target }))).toBe('view.openSchemaPanel');
 	});
 });

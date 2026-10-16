@@ -39,8 +39,8 @@ export class CompareController {
 		this.deps.setBusy(true);
 		this.deps.setError(null);
 		try {
-			await this.release();
 			const summary = await ipc.docSummary(target.handle);
+			await this.release();
 			this.handle = target.handle;
 			this.summary = summary;
 			this.sourceName = target.sourceName ?? 'tab';
@@ -67,12 +67,12 @@ export class CompareController {
 		this.deps.setBusy(true);
 		this.deps.setError(null);
 		try {
-			await this.release();
 			const res = await ipc.docOpen({ kind: 'file', path }, { repair: false });
 			if (res.kind === 'failed') {
 				this.deps.setError(describeOpenFailure(res));
 				return;
 			}
+			await this.release();
 			this.handle = res.handle;
 			this.summary = res.summary;
 			this.sourceName = path;

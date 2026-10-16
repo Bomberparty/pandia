@@ -136,6 +136,12 @@ describe('describeError — backend kinds', () => {
 		);
 	});
 
+	it('tooDeep says how deep is too deep and what to do', () => {
+		expect(describeError(new IpcError('tooDeep', 'too deep', { limit: 1000 }))).toBe(
+			'This JSON is nested more than 1,000 levels deep, which is more than Pandia supports. Reduce the nesting and try again.',
+		);
+	});
+
 	it('cancelled stays terse', () => {
 		expect(describeError(new IpcError('cancelled', 'cancelled'))).toBe('Cancelled.');
 	});

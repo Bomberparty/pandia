@@ -25,13 +25,15 @@
 	interface Props {
 		leftHandle: DocHandle;
 		rightHandle: DocHandle;
+		leftVersion: number;
+		rightVersion: number;
 
 		activeHunk: number;
 
 		onMeta?: (meta: InlineMeta) => void;
 	}
 
-	let { leftHandle, rightHandle, activeHunk, onMeta }: Props = $props();
+	let { leftHandle, rightHandle, leftVersion, rightVersion, activeHunk, onMeta }: Props = $props();
 
 	let rows: UnifiedRow[] = $state.raw([]);
 	let anchors: number[] = $state.raw([]);
@@ -111,6 +113,8 @@
 	$effect(() => {
 		const l = leftHandle;
 		const r = rightHandle;
+		void leftVersion;
+		void rightVersion;
 		let cancelled = false;
 		loading = true;
 		error = null;

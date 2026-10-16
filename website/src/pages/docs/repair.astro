@@ -24,12 +24,16 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
     key at the very end with no value is dropped.</li>
     <li><strong>Line breaks and stray backslashes</strong> inside strings are escaped, so the text
     reads the same.</li>
+    <li><strong>Cut-off JSON Lines</strong> — records on separate lines whose last one was cut off
+    are joined into an array.</li>
   </ul>
 
   <h2>What it never changes</h2>
   <p>Repair changes only structure: brackets, commas, quotes and comments. The text inside a string
   is never touched, so a URL, an apostrophe or a <code>//</code> inside a value comes through as it
-  is.</p>
+  is. The one exception is a broken character escape, such as half of an emoji
+  (<code>\ud83d</code>), which no JSON reader can load: it becomes <code>�</code>, and the banner
+  says so.</p>
 
   <h2>When it runs</h2>
   <p>When a file or paste isn't valid JSON, Pandia first reads it as JSONC or JSON5, then converts

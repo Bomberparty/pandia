@@ -115,7 +115,14 @@ fn value_eq(cell: Option<&Value>, operand: Option<&Value>) -> bool {
             return ord == Ordering::Equal;
         }
     }
-    scalar_str(cell) == scalar_str(operand)
+    let (a, b) = (
+        cell.unwrap_or(&Value::Null),
+        operand.unwrap_or(&Value::Null),
+    );
+    match (scalar_str(a), scalar_str(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => a == b,
+    }
 }
 
 fn numeric_token(v: &Value) -> Option<Cow<'_, str>> {
@@ -126,12 +133,11 @@ fn numeric_token(v: &Value) -> Option<Cow<'_, str>> {
     }
 }
 
-fn scalar_str(v: Option<&Value>) -> Option<String> {
-    match v? {
+fn scalar_str(v: &Value) -> Option<String> {
+    match v {
         Value::String(s) => Some(s.clone()),
         Value::Number(n) => Some(n.to_string()),
         Value::Bool(b) => Some(b.to_string()),
-        Value::Null => None,
         _ => None,
     }
 }
@@ -211,6 +217,41 @@ mod tests {
         assert!(matches(Some(&json!("Adeel")), &sw));
         assert!(matches(Some(&json!("adeel")), &sw)); // case-insensitive
         assert!(!matches(Some(&json!("Bo")), &sw));
+    }
+
+    #[test]
+    fn empty_checklist_entry_matches_only_null_and_missing() {
+        let empty = GridFilter {
+            key: "x".into(),
+            op: FilterOp::In,
+            value: Some(json!([null])),
+        };
+        assert!(matches(None, &empty));
+        assert!(matches(Some(&json!(null)), &empty));
+        assert!(!matches(Some(&json!({"a": 1})), &empty));
+        assert!(!matches(Some(&json!([1])), &empty));
+
+        let filled = GridFilter {
+            op: FilterOp::NotIn,
+            ..empty
+        };
+        assert!(matches(Some(&json!({"a": 1})), &filled));
+        assert!(matches(Some(&json!([1])), &filled));
+        assert!(!matches(None, &filled));
+    }
+
+    #[test]
+    fn object_and_array_cells_compare_structurally() {
+        let picked = GridFilter {
+            key: "x".into(),
+            op: FilterOp::In,
+            value: Some(json!([{"a": 1}, [1, 2]])),
+        };
+        assert!(matches(Some(&json!({"a": 1})), &picked));
+        assert!(matches(Some(&json!([1, 2])), &picked));
+        assert!(!matches(Some(&json!({"a": 2})), &picked));
+        assert!(!matches(Some(&json!([2])), &picked));
+        assert!(!matches(None, &picked));
     }
 
     #[test]
