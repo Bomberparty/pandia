@@ -137,16 +137,16 @@
 	}
 
 	function leftPathOf(e: DiffEntry): Path {
-		if (e.kind !== 'moved' || e.fromIndex == null) return e.path;
-		return [...e.path.slice(0, -1), e.fromIndex];
+		return e.leftPath ?? e.path;
 	}
 
 	function entryPathDisplay(e: DiffEntry): string {
-		if (e.kind !== 'moved' || e.fromIndex == null) return pathToString(e.path);
+		if (e.kind !== 'moved') return pathToString(e.path);
 		const parent = e.path.slice(0, -1);
 		const parentStr = parent.length === 0 ? '$' : pathToString(parent);
+		const fromIdx = leftPathOf(e)[e.path.length - 1];
 		const toIdx = e.path[e.path.length - 1];
-		return `${parentStr}[${e.fromIndex}→${toIdx}]`;
+		return `${parentStr}[${fromIdx}→${toIdx}]`;
 	}
 
 	function selectEntry(i: number) {
@@ -411,11 +411,10 @@
 								{#if e.kind === 'moved'}
 									<span class="right">{e.leftPreview ?? ''}</span>
 								{:else}
-									{#if e.leftPreview !== undefined}<span class="left">{e.leftPreview}</span>{/if}
-									{#if e.leftPreview !== undefined && e.rightPreview !== undefined}<span
-											class="arrow">→</span
+									{#if e.leftPreview !== null}<span class="left">{e.leftPreview}</span>{/if}
+									{#if e.leftPreview !== null && e.rightPreview !== null}<span class="arrow">→</span
 										>{/if}
-									{#if e.rightPreview !== undefined}<span class="right">{e.rightPreview}</span>{/if}
+									{#if e.rightPreview !== null}<span class="right">{e.rightPreview}</span>{/if}
 								{/if}
 							</span>
 						</button>

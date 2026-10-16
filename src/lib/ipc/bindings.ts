@@ -139,10 +139,10 @@ export type DiagnosisFix = {
 
 export type DiffEntry = {
 	path: Path,
+	leftPath: Path | null,
 	kind: DiffKind,
 	leftPreview: string | null,
 	rightPreview: string | null,
-	fromIndex: number | null,
 };
 
 export type DiffKind = "added" | "removed" | "changed" | "moved";

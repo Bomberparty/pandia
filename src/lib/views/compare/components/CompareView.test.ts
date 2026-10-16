@@ -45,7 +45,7 @@ const props = {
 };
 
 function entry(e: Partial<DiffEntry> & Pick<DiffEntry, 'path' | 'kind'>): DiffEntry {
-	return { leftPreview: null, rightPreview: null, fromIndex: null, ...e };
+	return { leftPath: null, leftPreview: null, rightPreview: null, ...e };
 }
 
 function pane(container: HTMLElement, side: 0 | 1): HTMLElement {
@@ -63,13 +63,43 @@ beforeEach(() => {
 describe('CompareView — side-by-side', () => {
 	it('outlines where a moved element came from in the left pane', async () => {
 		texts = { L: '["a","b","c"]', R: '["b","c","a"]' };
-		entries = [entry({ path: [2], kind: 'moved', fromIndex: 0, leftPreview: '"a"' })];
+		entries = [entry({ path: [2], kind: 'moved', leftPath: [0], leftPreview: '"a"' })];
 		const { container } = render(CompareView, { props });
 
 		await vi.waitFor(() => {
 			expect(pane(container, 0).querySelector('.cm-diff-active')?.textContent).toBe('"a"');
 			expect(pane(container, 1).querySelector('.cm-diff-active')?.textContent).toBe('"a"');
 		});
+	});
+
+	it('marks an edited item on its own row in the left pane after an insert above it', async () => {
+		texts = { L: '["a","b","c","d"]', R: '["a","x","b","C","d"]' };
+		entries = [
+			entry({ path: [1], kind: 'added' }),
+			entry({ path: [3], leftPath: [2], kind: 'changed' }),
+		];
+		const { container } = render(CompareView, { props });
+		await vi.waitFor(() => expect(container.querySelectorAll('.entry')).toHaveLength(2));
+		await fireEvent.click(container.querySelectorAll<HTMLElement>('.entry')[1]!);
+
+		await vi.waitFor(() => {
+			expect(pane(container, 0).querySelector('.cm-diff-changed')?.textContent).toBe('"c"');
+			expect(pane(container, 0).querySelector('.cm-diff-active')?.textContent).toBe('"c"');
+			expect(pane(container, 1).querySelector('.cm-diff-active')?.textContent).toBe('"C"');
+		});
+	});
+
+	it('shows only the side that exists for added and removed entries', async () => {
+		texts = { L: '["a","b"]', R: '["a","x"]' };
+		entries = [
+			entry({ path: [1], kind: 'removed', leftPreview: '"b"' }),
+			entry({ path: [1], kind: 'added', rightPreview: '"x"' }),
+		];
+		const { container } = render(CompareView, { props });
+		const previews = () =>
+			[...container.querySelectorAll('.entry .preview')].map((p) => p.textContent?.trim());
+
+		await vi.waitFor(() => expect(previews()).toEqual(['"b"', '"x"']));
 	});
 
 	it('keeps the selected entry when the diff recomputes', async () => {
