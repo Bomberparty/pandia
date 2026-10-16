@@ -37,6 +37,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::doc_summary,
             commands::doc_child_count,
             commands::doc_column_schema,
+            commands::doc_scan_columns,
             commands::doc_apply_op,
             commands::doc_set_root_text,
             commands::doc_undo,
@@ -134,8 +135,6 @@ fn focus_main_window(app: &AppHandle) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-// Documents open up to 1,000 levels deep, and parsing, export, diff and the code view recurse
-// once per level on these threads. Debug builds use far more stack per level than release.
 const RUNTIME_STACK_BYTES: usize = if cfg!(debug_assertions) { 256 } else { 32 } << 20;
 
 fn doc_runtime() -> tokio::runtime::Runtime {
@@ -147,14 +146,14 @@ fn doc_runtime() -> tokio::runtime::Runtime {
 }
 
 pub fn run() {
+    let context = tauri::generate_context!();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let launched = std::env::var_os(cli::LAUNCHED_ENV).is_some();
-    // Only the launcher attaches: an app tied to the terminal would close with it.
     let in_terminal = !cfg!(debug_assertions)
         && !launched
         && (cli::attach_console() || std::io::stderr().is_terminal());
     if (!args.is_empty() || in_terminal) && !launched {
-        std::process::exit(cli::launch(args));
+        std::process::exit(cli::launch(args, &context.config().identifier));
     }
 
     let runtime = doc_runtime();
@@ -185,8 +184,7 @@ pub fn run() {
         .manage(std::sync::Arc::new(doc::jobs::JobRegistry::default()))
         .invoke_handler(specta_builder().invoke_handler())
         .setup(move |app| {
-            // Read after the single-instance plugin has run: a launch that hands its files to an
-            // open Pandia exits before this, so only the app that keeps them takes the wait.
+            cli::hold_instance(&app.config().identifier);
             let cwd = std::env::current_dir().unwrap_or_default();
             let files = cli::pending_from(args, &cwd, &app.state::<AppState>().handoffs);
             queue_files(app.handle(), files);
@@ -202,7 +200,7 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(handle_menu_event)
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             #[cfg(target_os = "macos")]

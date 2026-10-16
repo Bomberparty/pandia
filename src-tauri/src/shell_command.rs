@@ -38,6 +38,7 @@ mod platform {
 
     pub fn install(_: &tauri::AppHandle) -> Result<(), String> {
         let target = super::app_executable()?;
+        super::ensure_replaceable(Path::new(LINK), &target)?;
         let target = super::sh_quote(&target.to_string_lossy());
         run_as_admin(&format!(
             "mkdir -p /usr/local/bin && ln -sf {target} {LINK}"
@@ -45,6 +46,7 @@ mod platform {
     }
 
     pub fn remove(_: &tauri::AppHandle) -> Result<(), String> {
+        super::ensure_replaceable(Path::new(LINK), &super::app_executable()?)?;
         run_as_admin(&format!("rm -f {LINK}"))
     }
 
@@ -97,6 +99,7 @@ mod platform {
     pub fn install(_: &tauri::AppHandle) -> Result<(), String> {
         let target = super::app_executable()?;
         let link = link().ok_or("Pandia couldn't find your home folder.")?;
+        super::ensure_replaceable(&link, &target)?;
         let failed = |_| {
             format!(
                 "Pandia couldn't create {}. Check that you can write to that folder, then try again.",
@@ -110,8 +113,11 @@ mod platform {
 
     pub fn remove(_: &tauri::AppHandle) -> Result<(), String> {
         match link() {
-            Some(link) if link.symlink_metadata().is_ok() => std::fs::remove_file(&link)
-                .map_err(|_| format!("Pandia couldn't remove {}.", link.display())),
+            Some(link) if link.symlink_metadata().is_ok() => {
+                super::ensure_replaceable(&link, &super::app_executable()?)?;
+                std::fs::remove_file(&link)
+                    .map_err(|_| format!("Pandia couldn't remove {}.", link.display()))
+            }
             _ => Ok(()),
         }
     }
@@ -204,6 +210,21 @@ fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
+#[cfg(not(windows))]
+fn ensure_replaceable(link: &std::path::Path, exe: &std::path::Path) -> Result<(), String> {
+    let ours = match std::fs::read_link(link) {
+        Ok(target) => target == exe || !link.exists(),
+        Err(_) => link.symlink_metadata().is_err(),
+    };
+    if ours {
+        return Ok(());
+    }
+    Err(format!(
+        "{} isn't Pandia's command, so Pandia left it alone. If you don't need it, rename or delete it yourself.",
+        link.display()
+    ))
+}
+
 // Run through cmd, so terminals wait for `--wait` and see Pandia's exit code.
 #[cfg(any(windows, test))]
 fn cmd_script(exe: &str) -> String {
@@ -241,6 +262,37 @@ mod tests {
             sh_quote("/Apps/Pan dia's.app/pandia"),
             r"'/Apps/Pan dia'\''s.app/pandia'"
         );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn only_pandias_own_link_is_replaced_or_removed() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("pandia-shell-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("Pandia");
+        let other = dir.join("other-tool");
+        std::fs::write(&exe, "").unwrap();
+        std::fs::write(&other, "").unwrap();
+        let link = |name: &str, target: &std::path::Path| {
+            let path = dir.join(name);
+            symlink(target, &path).unwrap();
+            path
+        };
+
+        assert!(ensure_replaceable(&dir.join("missing"), &exe).is_ok());
+        assert!(ensure_replaceable(&link("ours", &exe), &exe).is_ok());
+        let moved = link("moved", &dir.join("Old.app"));
+        assert!(
+            ensure_replaceable(&moved, &exe).is_ok(),
+            "a copy that moved"
+        );
+        let theirs = link("theirs", &other);
+        let err = ensure_replaceable(&theirs, &exe).unwrap_err();
+        assert!(err.starts_with(&theirs.display().to_string()), "{err}");
+        assert!(ensure_replaceable(&other, &exe).is_err(), "a program file");
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

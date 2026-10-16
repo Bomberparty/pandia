@@ -11,7 +11,7 @@ use sonic_rs::FastStr;
 use super::atomic;
 use super::backend::DocumentBackend;
 use super::eager::{cmp_cell, replace_in_value};
-use super::export::{export as export_value, ExportFormat};
+use super::export::{export as export_value, ExportError, ExportFormat};
 use super::format::{self, InputFormat};
 use super::grid_filter::{row_passes, GridFilter};
 use super::history::History;
@@ -286,8 +286,9 @@ impl Document {
         if self.version == self.saved_version {
             return false;
         }
+
         if self.source_size > LAZY_THRESHOLD_BYTES {
-            return true;
+            return !self.history.at_saved();
         }
         self.current_hash() != self.saved_hash
     }
@@ -343,9 +344,10 @@ impl Document {
             ExportFormat::Json | ExportFormat::JsonMin => {
                 let pretty = matches!(format, ExportFormat::Json);
                 atomic::write_atomic(target, |w| {
-                    self.backend()
-                        .write_json(pretty, w)
-                        .map_err(std::io::Error::other)
+                    self.backend().write_json(pretty, w).map_err(|e| match e {
+                        ExportError::Io(e) => e,
+                        e => std::io::Error::other(e),
+                    })
                 })
             }
             _ => {
@@ -425,8 +427,14 @@ impl Document {
         self.comments_stripped = false;
         self.file_path = Some(saved.target.clone());
         self.source_path = Some(saved.target.clone());
+        self.source_size = saved.text.len() as u64;
         self.saved_version = saved.version;
         self.saved_hash = saved.hash;
+        if self.version == saved.version {
+            self.history.mark_saved();
+        } else {
+            self.history.forget_saved();
+        }
         SaveResult {
             path: saved.target.clone(),
             version: saved.version,
@@ -447,6 +455,7 @@ impl Document {
     }
 
     fn mark_saved(&mut self) {
+        self.history.mark_saved();
         self.saved_version = self.version;
         let saved_hash = self.compute_content_hash();
         self.saved_hash = saved_hash;
@@ -559,6 +568,15 @@ impl Document {
 
     fn column_cells(&self, path: &Path, key: &str) -> DocResult<Vec<Option<Value>>> {
         self.backend().column_cells(path, key)
+    }
+
+    pub fn for_each_row_field(
+        &self,
+        path: &Path,
+        cancel: &crate::doc::jobs::CancelFlag,
+        f: &mut dyn FnMut(&str, NodeKind),
+    ) -> DocResult<u32> {
+        self.backend().for_each_row_field(path, cancel, f)
     }
 
     fn compute_column_text_lower(&self, path: &Path, key: &str) -> DocResult<Vec<Option<String>>> {
@@ -983,6 +1001,7 @@ impl Document {
         result.map_err(|e| match e {
             SchemaCompileError::Parse(s) => DocError::Schema(format!("not valid JSON: {s}")),
             SchemaCompileError::Compile(s) => DocError::Schema(format!("compile error: {s}")),
+            SchemaCompileError::ExternalRef(uri) => DocError::SchemaExternalRef(uri),
         })
     }
 
@@ -1250,6 +1269,95 @@ mod tests {
             );
 
             let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    fn large_doc_file(name: &str) -> (String, Document) {
+        let path = temp_path(name);
+        let pad = "x".repeat(LAZY_THRESHOLD_BYTES as usize);
+        std::fs::write(&path, format!(r#"{{"pad": "{pad}", "a": 1}}"#)).unwrap();
+        let d = Document::from_file(&path).unwrap();
+        assert!(d.summary().lazy);
+        (path, d)
+    }
+
+    fn set_a(v: i64) -> Op {
+        Op::SetValue {
+            path: Path(vec![PathSegment::Key("a".into())]),
+            value: serde_json::json!(v),
+        }
+    }
+
+    #[test]
+    fn undo_to_the_saved_state_clears_dirty_on_a_large_doc() {
+        let (path, mut d) = large_doc_file("large-undo.json");
+
+        d.apply(&set_a(2)).unwrap();
+        d.undo().unwrap();
+        assert!(!d.summary().dirty, "undo back to the opened content");
+
+        d.apply(&set_a(3)).unwrap();
+        d.save(None).unwrap();
+        d.apply(&set_a(4)).unwrap();
+        d.undo().unwrap();
+        assert!(!d.summary().dirty, "undo back to the saved content");
+        d.undo().unwrap();
+        assert!(d.summary().dirty, "one step before the save");
+        d.redo().unwrap();
+        assert!(!d.summary().dirty, "redo forward to the saved content");
+
+        d.undo().unwrap();
+        d.apply(&set_a(5)).unwrap();
+        assert!(
+            d.summary().dirty,
+            "a new edit drops the saved state from redo"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_edit_during_a_large_save_keeps_the_doc_dirty() {
+        let (path, mut d) = large_doc_file("large-race.json");
+        d.apply(&set_a(2)).unwrap();
+
+        let pending = d.prepare_save(None).unwrap();
+        d.apply(&set_a(3)).unwrap();
+        pending.write().unwrap();
+        d.finish_save(&pending);
+        assert!(d.summary().dirty, "the file has the earlier content");
+        d.undo().unwrap();
+        d.undo().unwrap();
+        assert!(d.summary().dirty, "the opened content is no longer on disk");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_updates_source_size_to_the_written_bytes() {
+        let path = temp_path("size.json");
+        std::fs::write(&path, r#"{"a":1}"#).unwrap();
+        let mut d = Document::from_file(&path).unwrap();
+
+        d.save(None).unwrap();
+        assert_eq!(
+            d.summary().source_size,
+            std::fs::metadata(&path).unwrap().len()
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_schema_ref_to_another_address_names_that_address() {
+        let d = doc(r#"{"a": 1}"#);
+        for uri in ["https://example.com/s.json", "file:///tmp/s.json"] {
+            let err = d
+                .validate_schema(&format!(r#"{{"$ref": "{uri}"}}"#))
+                .unwrap_err();
+            let wire = crate::doc::types::WireError::from(err);
+            assert_eq!(wire.kind, crate::doc::types::ErrorKind::SchemaExternalRef);
+            assert_eq!(wire.detail.as_deref(), Some(uri));
         }
     }
 

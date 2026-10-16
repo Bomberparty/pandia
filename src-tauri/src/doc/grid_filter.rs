@@ -107,7 +107,10 @@ fn contains_ci(haystack: &str, needle: &str) -> bool {
 }
 
 fn value_eq(cell: Option<&Value>, operand: Option<&Value>) -> bool {
-    if let (Some(a), Some(b)) = (
+    let has_number =
+        matches!(cell, Some(Value::Number(_))) || matches!(operand, Some(Value::Number(_)));
+    if let (true, Some(a), Some(b)) = (
+        has_number,
         cell.and_then(numeric_token),
         operand.and_then(numeric_token),
     ) {
@@ -188,6 +191,33 @@ mod tests {
         assert!(matches(Some(&json!(6.1)), &f(FilterOp::Eq, json!("6.1"))));
         assert!(matches(Some(&json!(true)), &f(FilterOp::Eq, json!(true))));
         assert!(matches(Some(&json!("a")), &f(FilterOp::Ne, json!("b"))));
+    }
+
+    #[test]
+    fn text_cells_compare_as_text() {
+        assert!(!matches(
+            Some(&json!("501")),
+            &f(FilterOp::Eq, json!("00501"))
+        ));
+        assert!(!matches(
+            Some(&json!("1000")),
+            &f(FilterOp::Eq, json!("1e3"))
+        ));
+        assert!(matches(
+            Some(&json!("501")),
+            &f(FilterOp::Ne, json!("00501"))
+        ));
+        let picked = f(FilterOp::In, json!(["00501"]));
+        assert!(!matches(Some(&json!("501")), &picked));
+        assert!(matches(Some(&json!("00501")), &picked));
+    }
+
+    #[test]
+    fn range_bounds_read_loose_number_text() {
+        assert!(matches(Some(&json!(0.7)), &f(FilterOp::Gte, json!(".5"))));
+        assert!(!matches(Some(&json!(0.4)), &f(FilterOp::Gte, json!(".5"))));
+        assert!(matches(Some(&json!(5)), &f(FilterOp::Lte, json!("05"))));
+        assert!(!matches(Some(&json!(6)), &f(FilterOp::Lte, json!("05"))));
     }
 
     #[test]

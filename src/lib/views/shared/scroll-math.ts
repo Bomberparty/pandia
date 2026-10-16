@@ -90,3 +90,8 @@ export function scaledOffset(
 	if (fullHeight <= MAX_SCROLL_HEIGHT) return scrollTop;
 	return (scrollTop * (fullHeight - viewportHeight)) / (MAX_SCROLL_HEIGHT - viewportHeight);
 }
+
+export function scrollTopFor(offset: number, viewportHeight: number, fullHeight: number): number {
+	if (fullHeight <= MAX_SCROLL_HEIGHT) return offset;
+	return (offset * (MAX_SCROLL_HEIGHT - viewportHeight)) / (fullHeight - viewportHeight);
+}

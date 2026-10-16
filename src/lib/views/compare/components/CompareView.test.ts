@@ -165,6 +165,54 @@ describe('CompareView — side-by-side', () => {
 	});
 });
 
+describe('CompareView — sync scroll', () => {
+	// jsdom has no layout: give a pane a size, and fire a scroll event for every scrollTop
+	// write as browsers do (CodeMirror centers an entry by writing scrollTop).
+	function sized(el: HTMLElement, scrollHeight: number): HTMLElement {
+		let top = 0;
+		Object.defineProperty(el, 'scrollHeight', { value: scrollHeight });
+		Object.defineProperty(el, 'clientHeight', { value: 500 });
+		Object.defineProperty(el, 'scrollTop', {
+			get: () => top,
+			set: (v: number) => {
+				if (v === top) return;
+				top = v;
+				requestAnimationFrame(() => el.dispatchEvent(new Event('scroll')));
+			},
+		});
+		return el;
+	}
+	const frames = async (n: number) => {
+		for (let i = 0; i < n; i++) await new Promise((r) => requestAnimationFrame(r));
+	};
+
+	it('leaves each pane on the selected entry, then syncs your own scrolling', async () => {
+		texts = { L: '["a","b","c"]', R: '["a","x","c"]' };
+		entries = [entry({ path: [1], kind: 'changed' })];
+		const { container } = render(CompareView, { props });
+		await vi.waitFor(() => {
+			expect(pane(container, 0).querySelector('.cm-diff-active')).not.toBeNull();
+			expect(pane(container, 1).querySelector('.cm-diff-active')).not.toBeNull();
+		});
+		const left = sized(pane(container, 0).querySelector<HTMLElement>('.cm-scroller')!, 100_500);
+		const right = sized(pane(container, 1).querySelector<HTMLElement>('.cm-scroller')!, 20_500);
+
+		left.scrollTop = 80_000;
+		await frames(2);
+		right.scrollTop = 2_000;
+		await frames(3);
+		expect({ left: left.scrollTop, right: right.scrollTop }).toEqual({
+			left: 80_000,
+			right: 2_000,
+		});
+
+		left.dispatchEvent(new Event('wheel'));
+		left.scrollTop = 50_000;
+		await frames(3);
+		expect(right.scrollTop).toBe(10_000);
+	});
+});
+
 describe('CompareView — cancelling a running diff', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();

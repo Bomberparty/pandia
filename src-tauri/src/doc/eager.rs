@@ -206,6 +206,28 @@ impl super::backend::DocumentBackend for Value {
         }
     }
 
+    fn for_each_row_field(
+        &self,
+        path: &Path,
+        cancel: &super::jobs::CancelFlag,
+        f: &mut dyn FnMut(&str, NodeKind),
+    ) -> DocResult<u32> {
+        let Ok(Value::Array(arr)) = resolve_eager(self, path) else {
+            return Ok(0);
+        };
+        for (i, el) in arr.iter().enumerate() {
+            if i % 4096 == 0 && cancel.is_cancelled() {
+                return Err(DocError::Cancelled);
+            }
+            if let Value::Object(map) = el {
+                for (k, v) in map {
+                    f(k, kind_and_child_count_eager(v).0);
+                }
+            }
+        }
+        Ok(arr.len() as u32)
+    }
+
     fn column_text_lower(&self, path: &Path, key: &str) -> DocResult<Vec<Option<String>>> {
         match resolve_eager(self, path) {
             Ok(Value::Array(arr)) => Ok(arr

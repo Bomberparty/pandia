@@ -79,6 +79,7 @@ export class FindController {
 		}
 		this.deps.switchToTree();
 		this.open = true;
+		this.syncActiveView();
 	};
 
 	openReplace = () => {
@@ -130,8 +131,11 @@ export class FindController {
 		}, FIND_DEBOUNCE_MS);
 	};
 
-	/** Recounts after an edit, keeping the active hit and leaving the view where it is. */
 	refreshAfterEdit = () => {
+		if (!this.open || !this.query.trim()) {
+			this.hitsQuery = null; // reopening the bar searches the edited document
+			return;
+		}
 		if (this.deps.isCodeView()) {
 			const api = this.deps.codeApi();
 			if (api) {
@@ -187,6 +191,7 @@ export class FindController {
 	};
 
 	cancel = () => {
+		if (this.timer != null) clearTimeout(this.timer);
 		const id = this.activeJobId;
 		this.activeJobId = null;
 		this.seq++; // make any in-flight resolve a stale response
@@ -260,7 +265,7 @@ export class FindController {
 	};
 
 	reset = () => {
-		if (this.activeJobId !== null) this.cancel();
+		this.cancel();
 		this.open = false;
 		this.query = '';
 		this.hits = [];

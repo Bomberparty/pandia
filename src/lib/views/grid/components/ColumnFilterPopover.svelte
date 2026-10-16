@@ -3,7 +3,7 @@
 	import type { NodeKind } from '$lib/ipc/bindings';
 	import {
 		OP_LABEL,
-		valLabel,
+		valLabels,
 		type ColOp,
 		type ColFilter,
 		type DecodedColumnValues,
@@ -119,17 +119,16 @@
 					aria-label="search values"
 				/>
 			{/if}
+			{@const labels = valLabels(view.distinctValues.map((cv) => cv.value))}
 			<div class="cf-list">
-				{#each view.distinctValues as cv (JSON.stringify(cv.value))}
+				{#each view.distinctValues as cv, i (JSON.stringify(cv.value))}
 					<label class="cf-item">
 						<input
 							type="checkbox"
 							checked={actions.isChecked(cv.value)}
 							onchange={() => actions.toggleValue(cv.value)}
 						/>
-						<span class="cf-val" class:empty={valLabel(cv.value) === '(empty)'}
-							>{valLabel(cv.value)}</span
-						>
+						<span class="cf-val" class:empty={labels[i] === '(empty)'}>{labels[i]}</span>
 						<span class="cf-count">{cv.count.toLocaleString()}</span>
 					</label>
 				{:else}

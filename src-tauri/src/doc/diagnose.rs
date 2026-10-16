@@ -294,9 +294,10 @@ fn build_excerpt(text: &str, offset: usize, line: u32, column: u32) -> Option<Di
         .take(EXCERPT_RADIUS)
         .last()
         .map_or(offset, |(i, _)| i);
+
     let end = text[offset..]
         .char_indices()
-        .take_while(|&(_, c)| c != '\n')
+        .take_while(|&(i, c)| c != '\n' && (i == 0 || !text[offset + i..].starts_with("\r\n")))
         .take(EXCERPT_RADIUS)
         .last()
         .map_or(offset, |(i, c)| offset + i + c.len_utf8());
@@ -307,7 +308,8 @@ fn build_excerpt(text: &str, offset: usize, line: u32, column: u32) -> Option<Di
         line,
         column,
         clipped_start: text[..start].ends_with(|c: char| c != '\n'),
-        clipped_end: text[end..].starts_with(|c: char| c != '\n'),
+        clipped_end: text[end..].starts_with(|c: char| c != '\n')
+            && !text[end..].starts_with("\r\n"),
     })
 }
 
@@ -399,6 +401,17 @@ mod tests {
     fn invisible_characters_get_a_visible_stand_in() {
         let r = d("{\"a\": \u{200b}}").excerpt.expect("excerpt");
         assert!(r.text.contains('·'), "{:?}", r.text);
+        assert_eq!(r.text.chars().nth(r.caret as usize), Some('·'));
+    }
+
+    #[test]
+    fn crlf_line_endings_stay_out_of_the_excerpt() {
+        let r = d("{\r\n  \"a\": 1,\r\n  \"b\": ]\r\n}")
+            .excerpt
+            .expect("excerpt");
+        assert_eq!(r.text, "  \"b\": ]");
+        assert!(!r.clipped_end);
+        let r = d("{\"a\": \"one\r\ntwo\"}").excerpt.expect("excerpt");
         assert_eq!(r.text.chars().nth(r.caret as usize), Some('·'));
     }
 

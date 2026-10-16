@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, vi } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render } from '@testing-library/svelte';
 import { ipc } from '$lib/ipc/client';
 import type { DocContext } from '$lib/shell/state/workspace.svelte';
 import OutlinePanel from './OutlinePanel.svelte';
@@ -26,5 +26,23 @@ describe('OutlinePanel', () => {
 		await rerender({ context: null });
 		await rerender({ context });
 		await findByText('document');
+	});
+
+	it('keeps expanded nodes open after an edit', async () => {
+		vi.mocked(ipc.docGetSlice).mockImplementation(async (_h, path) =>
+			path.length === 0
+				? [{ key: 'users', kind: 'object', preview: '{…}', childCount: 1 }]
+				: [{ key: 'ada', kind: 'string', preview: '"x"', childCount: null }],
+		);
+		const { findByText, rerender } = render(OutlinePanel, {
+			props: { context: { handle: 'h1', version: 1 } as unknown as DocContext },
+		});
+		await fireEvent.click(await findByText('users'));
+		await findByText('ada');
+
+		await rerender({ context: { handle: 'h1', version: 2 } as unknown as DocContext });
+		await vi.waitFor(() => expect(vi.mocked(ipc.docGetSlice).mock.calls.length).toBeGreaterThan(2));
+		await new Promise((r) => setTimeout(r, 0));
+		await findByText('ada');
 	});
 });

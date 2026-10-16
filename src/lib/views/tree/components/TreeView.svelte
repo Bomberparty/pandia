@@ -22,7 +22,7 @@
 	import { createAutoScroller } from '$lib/ui/auto-scroll';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { ChevronDown, ChevronRight, GripVertical, MoreHorizontal } from '@lucide/svelte';
-	import { DEFAULT_ROW_H, OVERSCAN } from '$lib/views/shared/scroll-math';
+	import { DEFAULT_ROW_H, OVERSCAN, scaledOffset } from '$lib/views/shared/scroll-math';
 	import { WindowedScroller } from '$lib/views/shared/windowed-scroller.svelte';
 	import type { DiffKind, Path } from '$lib/ipc/bindings';
 	import InlineCellEditor from './InlineCellEditor.svelte';
@@ -124,7 +124,7 @@
 		},
 	});
 	const offsets = $derived(s.offsets);
-	const totalHeight = $derived(s.totalHeight);
+	const contentHeight = $derived(s.contentHeight);
 	const startIndex = $derived(s.window.start);
 	const endIndex = $derived(s.window.end);
 	const visibleRows = $derived(rows.slice(startIndex, endIndex));
@@ -157,8 +157,8 @@
 
 	$effect(() => {
 		if (!onMaterializeGap) return;
-		const top = s.scrollTop;
-		const bottom = s.scrollTop + s.viewportHeight;
+		const top = s.offset;
+		const bottom = s.offset + s.viewportHeight;
 		const GAP_OVERSCAN_ROWS = 32;
 		for (let i = startIndex; i < endIndex && i < rows.length; i++) {
 			const r = rows[i];
@@ -315,13 +315,18 @@
 		drag = { index: i, pointerId: e.pointerId, startY: e.clientY, lastY: e.clientY, moved: false };
 	}
 
+	function contentY(clientY: number): number {
+		const el = s.el!;
+		const top = scaledOffset(el.scrollTop, s.viewportHeight, s.totalHeight);
+		return clientY - el.getBoundingClientRect().top + top;
+	}
+
 	function onDragMove(e: PointerEvent) {
 		if (!drag || e.pointerId !== drag.pointerId || !s.el) return;
 		drag.lastY = e.clientY;
 		if (!drag.moved && Math.abs(e.clientY - drag.startY) < DRAG_THRESHOLD) return;
 		drag.moved = true;
-		const rect = s.el.getBoundingClientRect();
-		dropTarget = gapAt(rows, offsets, drag.index, e.clientY - rect.top + s.el.scrollTop);
+		dropTarget = gapAt(rows, offsets, drag.index, contentY(e.clientY));
 		startAutoScroll();
 	}
 
@@ -353,8 +358,7 @@
 		maxStep: ROW_DRAG_MAX_STEP,
 		onTick: () => {
 			if (!drag || !s.el) return;
-			const rect = s.el.getBoundingClientRect();
-			dropTarget = gapAt(rows, offsets, drag.index, drag.lastY - rect.top + s.el.scrollTop);
+			dropTarget = gapAt(rows, offsets, drag.index, contentY(drag.lastY));
 		},
 	});
 	const startAutoScroll = () => autoScroller.start();
@@ -371,11 +375,11 @@
 	onpointerup={onDragUp}
 	onpointercancel={onDragCancel}
 >
-	<div class="spacer" style="height: {totalHeight}px; width: max(100%, {maxRowCh}ch);">
+	<div class="spacer" style="height: {contentHeight}px; width: max(100%, {maxRowCh}ch);">
 		{#if dropTarget}
 			<div
 				class="drop-line"
-				style="top: {dropTarget.y}px; left: calc(0.5rem + {dropTarget.depth} * 1.2rem);"
+				style="top: {dropTarget.y - s.shift}px; left: calc(0.5rem + {dropTarget.depth} * 1.2rem);"
 			></div>
 		{/if}
 		{#each visibleRows as row, j (rowKey(row) + '@' + (startIndex + j))}
@@ -398,7 +402,7 @@
 					data-diff={diff}
 					data-invalid={invalid}
 					data-ri={i}
-					style="transform: translate3d(0, {offsets[i]}px, 0);"
+					style="transform: translate3d(0, {s.offsetAt(i) - s.shift}px, 0);"
 					role="button"
 					tabindex={0}
 					onclick={() => onRowClick(i, row)}
@@ -481,7 +485,7 @@
 				<div
 					class="r placeholder"
 					data-ri={i}
-					style="transform: translate3d(0, {offsets[i]}px, 0);"
+					style="transform: translate3d(0, {s.offsetAt(i) - s.shift}px, 0);"
 				>
 					{#each Array.from({ length: row.depth }) as _, g (g)}
 						<span class="guide"></span>
@@ -491,7 +495,11 @@
 					<span class="ph-label">Loading [{row.index}]</span>
 				</div>
 			{:else if isVGap(row)}{:else}
-				<div class="r close" data-ri={i} style="transform: translate3d(0, {offsets[i]}px, 0);">
+				<div
+					class="r close"
+					data-ri={i}
+					style="transform: translate3d(0, {s.offsetAt(i) - s.shift}px, 0);"
+				>
 					{#each Array.from({ length: row.depth }) as _, g (g)}
 						<span class="guide"></span>
 					{/each}

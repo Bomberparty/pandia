@@ -37,6 +37,7 @@ pub enum PrimitiveKind {
     Null,
     Bool,
     Integer,
+    Unsigned,
     Float,
     String,
     Any,
@@ -53,8 +54,10 @@ pub fn infer(value: &Value) -> TypeShape {
         Value::Null => TypeShape::Primitive(PrimitiveKind::Null),
         Value::Bool(_) => TypeShape::Primitive(PrimitiveKind::Bool),
         Value::Number(n) => {
-            if n.is_i64() || n.is_u64() {
+            if n.is_i64() {
                 TypeShape::Primitive(PrimitiveKind::Integer)
+            } else if n.is_u64() {
+                TypeShape::Primitive(PrimitiveKind::Unsigned)
             } else {
                 TypeShape::Primitive(PrimitiveKind::Float)
             }
@@ -93,10 +96,18 @@ pub(crate) fn merge(a: TypeShape, b: TypeShape) -> TypeShape {
     match (a, b) {
         (Unknown, x) | (x, Unknown) => x,
         (Primitive(p1), Primitive(p2)) if p1 == p2 => Primitive(p1),
-        (Primitive(PrimitiveKind::Integer), Primitive(PrimitiveKind::Float))
-        | (Primitive(PrimitiveKind::Float), Primitive(PrimitiveKind::Integer)) => {
-            Primitive(PrimitiveKind::Float)
+        (Primitive(PrimitiveKind::Integer), Primitive(PrimitiveKind::Unsigned))
+        | (Primitive(PrimitiveKind::Unsigned), Primitive(PrimitiveKind::Integer)) => {
+            Primitive(PrimitiveKind::Unsigned)
         }
+        (
+            Primitive(PrimitiveKind::Integer | PrimitiveKind::Unsigned),
+            Primitive(PrimitiveKind::Float),
+        )
+        | (
+            Primitive(PrimitiveKind::Float),
+            Primitive(PrimitiveKind::Integer | PrimitiveKind::Unsigned),
+        ) => Primitive(PrimitiveKind::Float),
         (Primitive(_), Primitive(_)) => Primitive(PrimitiveKind::Any),
         (Array(a1), Array(a2)) => Array(Box::new(merge(*a1, *a2))),
         (Object(p1), Object(p2)) => {
@@ -347,7 +358,7 @@ fn ts_primitive(p: PrimitiveKind) -> &'static str {
     match p {
         PrimitiveKind::Null => "null",
         PrimitiveKind::Bool => "boolean",
-        PrimitiveKind::Integer | PrimitiveKind::Float => "number",
+        PrimitiveKind::Integer | PrimitiveKind::Unsigned | PrimitiveKind::Float => "number",
         PrimitiveKind::String => "string",
         PrimitiveKind::Any => "unknown",
     }
@@ -461,13 +472,13 @@ fn rust_primitive(p: PrimitiveKind) -> &'static str {
         PrimitiveKind::Null => "Option<serde_json::Value>",
         PrimitiveKind::Bool => "bool",
         PrimitiveKind::Integer => "i64",
+        PrimitiveKind::Unsigned => "u64",
         PrimitiveKind::Float => "f64",
         PrimitiveKind::String => "String",
         PrimitiveKind::Any => "serde_json::Value",
     }
 }
 
-// encoding/json's isValidTag: any other character makes Go ignore the tag name.
 static GO_TAG_NAME: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[\p{L}\p{Nd}!#$%&()*+\-./:;<=>?@\[\]^_{|}~ ]+$").unwrap());
 
@@ -548,6 +559,7 @@ fn go_primitive(p: PrimitiveKind) -> &'static str {
         PrimitiveKind::Null => "interface{}",
         PrimitiveKind::Bool => "bool",
         PrimitiveKind::Integer => "int64",
+        PrimitiveKind::Unsigned => "uint64",
         PrimitiveKind::Float => "float64",
         PrimitiveKind::String => "string",
         PrimitiveKind::Any => "interface{}",
@@ -623,7 +635,6 @@ fn kotlin_type<'a>(
                 let entries: Vec<_> = props.iter().collect();
                 let mut taken = std::collections::BTreeSet::new();
                 for (i, (k, v)) in entries.iter().enumerate() {
-                    // The JVM getter capitalizes the first letter: `Name` and `name` both give getName().
                     let prop_name =
                         unique_name(&camel_ident(k), "field", &mut taken, capitalize_first);
                     let prop_name = if KOTLIN_KEYWORDS.contains(&prop_name.as_str()) {
@@ -655,7 +666,7 @@ fn kotlin_primitive(p: PrimitiveKind) -> &'static str {
     match p {
         PrimitiveKind::Null => "Any?",
         PrimitiveKind::Bool => "Boolean",
-        PrimitiveKind::Integer => "Long",
+        PrimitiveKind::Integer | PrimitiveKind::Unsigned => "Long",
         PrimitiveKind::Float => "Double",
         PrimitiveKind::String => "String",
         PrimitiveKind::Any => "Any",
@@ -748,7 +759,7 @@ fn python_primitive(p: PrimitiveKind) -> &'static str {
     match p {
         PrimitiveKind::Null => "Optional[Any]",
         PrimitiveKind::Bool => "bool",
-        PrimitiveKind::Integer => "int",
+        PrimitiveKind::Integer | PrimitiveKind::Unsigned => "int",
         PrimitiveKind::Float => "float",
         PrimitiveKind::String => "str",
         PrimitiveKind::Any => "Any",
@@ -904,7 +915,11 @@ fn php_type<'a>(
                         classes,
                         seen,
                     );
-                    let ty = if v.optional { format!("?{ty}") } else { ty };
+                    let ty = if v.optional && ty != "mixed" {
+                        format!("?{ty}")
+                    } else {
+                        ty
+                    };
                     let default = if v.optional { " = null" } else { "" };
                     let comma = if i + 1 < entries.len() { "," } else { "" };
                     let _ = writeln!(body, "        public {ty} ${prop_name}{default}{comma}");
@@ -922,7 +937,7 @@ fn php_primitive(p: PrimitiveKind) -> &'static str {
     match p {
         PrimitiveKind::Null => "mixed",
         PrimitiveKind::Bool => "bool",
-        PrimitiveKind::Integer => "int",
+        PrimitiveKind::Integer | PrimitiveKind::Unsigned => "int",
         PrimitiveKind::Float => "float",
         PrimitiveKind::String => "string",
         PrimitiveKind::Any => "mixed",
@@ -985,18 +1000,53 @@ const JAVA_KEYWORDS: &[&str] = &[
     "while",
 ];
 
-const JAVA_TYPES: &[&str] = &["Boolean", "Double", "List", "Long", "Object", "String"];
+const JAVA_TYPES: &[&str] = &[
+    "BigInteger",
+    "Boolean",
+    "Double",
+    "List",
+    "Long",
+    "Object",
+    "String",
+];
 
 fn render_java(shape: &TypeShape, name: &str) -> String {
     let mut classes: Vec<String> = Vec::new();
     let mut seen: BTreeMap<String, &TypeShape> = BTreeMap::new();
     let _ = java_type(shape, name, "", &mut classes, &mut seen, true);
-    let mut out = String::new();
-    for c in classes {
-        out.push_str(&c);
-        out.push_str("\n\n");
+    let Some(outer) = classes.pop() else {
+        return String::new();
+    };
+    let mut body = outer.strip_suffix('}').unwrap_or(&outer).to_string();
+    for class in classes {
+        body.push('\n');
+        for line in class
+            .replacen("public class", "public static class", 1)
+            .lines()
+        {
+            if !line.is_empty() {
+                body.push_str("    ");
+                body.push_str(line);
+            }
+            body.push('\n');
+        }
     }
-    out.trim_end().to_string()
+    body.push('}');
+
+    let mut out = String::new();
+    for (used, import) in [
+        ("BigInteger", "java.math.BigInteger"),
+        ("List<", "java.util.List"),
+    ] {
+        if body.contains(used) {
+            let _ = writeln!(out, "import {import};");
+        }
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(&body);
+    out
 }
 
 fn java_type<'a>(
@@ -1021,7 +1071,7 @@ fn java_type<'a>(
                 });
             if fresh {
                 let mut body = format!("public class {class_name} {{\n");
-                let mut taken = std::collections::BTreeSet::new();
+                let mut taken = std::collections::BTreeSet::from(["Class".to_string()]);
                 let mut fields = Vec::with_capacity(props.len());
                 for (k, v) in props {
                     let base = camel_ident(k);
@@ -1071,6 +1121,7 @@ fn java_primitive(p: PrimitiveKind, boxed: bool) -> &'static str {
         (PrimitiveKind::Bool, false) => "boolean",
         (PrimitiveKind::Integer, true) => "Long",
         (PrimitiveKind::Integer, false) => "long",
+        (PrimitiveKind::Unsigned, _) => "BigInteger",
         (PrimitiveKind::Float, true) => "Double",
         (PrimitiveKind::Float, false) => "double",
         (PrimitiveKind::String, _) => "String",
@@ -1120,7 +1171,7 @@ fn zod_primitive(p: PrimitiveKind) -> &'static str {
     match p {
         PrimitiveKind::Null => "z.null()",
         PrimitiveKind::Bool => "z.boolean()",
-        PrimitiveKind::Integer => "z.number().int()",
+        PrimitiveKind::Integer | PrimitiveKind::Unsigned => "z.number().int()",
         PrimitiveKind::Float => "z.number()",
         PrimitiveKind::String => "z.string()",
         PrimitiveKind::Any => "z.unknown()",
@@ -1265,7 +1316,7 @@ fn dart_primitive(p: PrimitiveKind) -> &'static str {
     match p {
         PrimitiveKind::Null | PrimitiveKind::Any => "dynamic",
         PrimitiveKind::Bool => "bool",
-        PrimitiveKind::Integer => "int",
+        PrimitiveKind::Integer | PrimitiveKind::Unsigned => "int",
         PrimitiveKind::Float => "double",
         PrimitiveKind::String => "String",
     }
@@ -1456,7 +1507,9 @@ fn json_schema_of(shape: &TypeShape, samples: &[&Value]) -> Value {
     match shape {
         TypeShape::Primitive(PrimitiveKind::Null) => json!({"type": "null"}),
         TypeShape::Primitive(PrimitiveKind::Bool) => json!({"type": "boolean"}),
-        TypeShape::Primitive(PrimitiveKind::Integer) => json!({"type": "integer"}),
+        TypeShape::Primitive(PrimitiveKind::Integer | PrimitiveKind::Unsigned) => {
+            json!({"type": "integer"})
+        }
         TypeShape::Primitive(PrimitiveKind::Float) => json!({"type": "number"}),
         TypeShape::Primitive(PrimitiveKind::String) => match string_format(samples) {
             Some(format) => json!({"type": "string", "format": format}),
@@ -1899,7 +1952,7 @@ mod tests {
         let php = gen(&json!({"class": {"a": 1}}), TypegenLang::Php);
         assert!(php.contains("final readonly class RootClass"), "{php}");
         let java = gen(&json!({"list": {"a": 1}, "tags": ["x"]}), TypegenLang::Java);
-        assert!(java.contains("public class RootList {"), "{java}");
+        assert!(java.contains("public static class RootList {"), "{java}");
         let dart = gen(
             &json!({"string": {"a": 1}, "map": {"b": 1}}),
             TypegenLang::Dart,
@@ -2101,6 +2154,63 @@ mod tests {
             TypegenLang::JsonSchema,
         );
         assert!(!mixed.contains("\"format\""), "{mixed}");
+    }
+
+    #[test]
+    fn java_output_compiles_as_one_file() {
+        let s = gen(
+            &json!({"user": {"name": "a"}, "tags": ["x"]}),
+            TypegenLang::Java,
+        );
+        assert!(
+            s.starts_with("import java.util.List;\n\npublic class Root {\n"),
+            "{s}"
+        );
+        assert_eq!(s.matches("public class").count(), 1, "{s}");
+        assert!(
+            s.contains("\n\n    public static class User {\n        private String name;\n"),
+            "{s}"
+        );
+        assert!(s.ends_with("\n    }\n}"), "{s}");
+        let no_list = gen(&json!({"id": 1}), TypegenLang::Java);
+        assert!(no_list.starts_with("public class Root {"), "{no_list}");
+    }
+
+    #[test]
+    fn java_never_declares_get_class() {
+        let s = gen(&json!({"Class": "a", "class": 1}), TypegenLang::Java);
+        assert!(!s.contains("getClass()"), "{s}");
+        assert!(s.contains("public String getClass2()"), "{s}");
+        assert!(s.contains("public Long getClass_()"), "{s}");
+    }
+
+    #[test]
+    fn php_optional_mixed_is_not_marked_nullable() {
+        let s = gen(&json!([{"a": null, "b": 1}, {"b": 2}]), TypegenLang::Php);
+        assert!(s.contains("public mixed $a = null"), "{s}");
+        assert!(!s.contains("?mixed"), "{s}");
+    }
+
+    #[test]
+    fn integers_above_i64_max_get_a_type_that_holds_them() {
+        let v: Value = serde_json::from_str(r#"{"id": 18446744073709551615, "n": -1}"#).unwrap();
+        let rust = gen(&v, TypegenLang::Rust);
+        assert!(rust.contains("    pub id: u64,"), "{rust}");
+        assert!(rust.contains("    pub n: i64,"), "{rust}");
+        let go = gen(&v, TypegenLang::Go);
+        assert!(go.contains("    Id uint64 `json:\"id\"`"), "{go}");
+        let java = gen(&v, TypegenLang::Java);
+        assert!(
+            java.starts_with("import java.math.BigInteger;\n\npublic class Root {"),
+            "{java}"
+        );
+        assert!(java.contains("    private BigInteger id;"), "{java}");
+        let mixed: Value =
+            serde_json::from_str(r#"[{"id": 1}, {"id": 18446744073709551615}]"#).unwrap();
+        assert!(
+            gen(&mixed, TypegenLang::Rust).contains("    pub id: u64,"),
+            "a smaller id in the sample doesn't narrow the type"
+        );
     }
 
     #[test]

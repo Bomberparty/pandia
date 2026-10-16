@@ -20,7 +20,7 @@ export type SchemaVerdict =
 	| { kind: 'checking'; last: SchemaValidationResult | null }
 	| { kind: 'stale'; last: SchemaValidationResult | null }
 	| { kind: 'checked'; result: SchemaValidationResult }
-	| { kind: 'problem'; message: string };
+	| { kind: 'problem'; message: string; retry?: () => Promise<void> };
 
 export function lastResult(verdict: SchemaVerdict): SchemaValidationResult | null {
 	switch (verdict.kind) {
@@ -76,11 +76,11 @@ export class SchemaSession {
 		await this.validateNow();
 	}
 
-	fail(message: string, origin: SchemaOrigin | null): void {
+	fail(message: string, origin: SchemaOrigin | null, retry?: () => Promise<void>): void {
 		this.cancel();
 		this.text = '';
 		this.origin = origin;
-		this.verdict = { kind: 'problem', message };
+		this.verdict = { kind: 'problem', message, retry };
 	}
 
 	async validateNow(): Promise<void> {

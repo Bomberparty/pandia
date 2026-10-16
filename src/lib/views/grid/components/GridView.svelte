@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { ColumnSchema, DocHandle, NodeKind, Path } from '$lib/ipc/bindings';
+	import { ipc } from '$lib/ipc/client';
+	import { describeError } from '$lib/ipc/error-copy';
 	import {
 		computeColumnLayout,
 		columnWindow,
@@ -56,10 +58,39 @@
 	const HEADER_HEIGHT = 26;
 	const COL_OVERSCAN = 4;
 
+	// The schema reads columns from a 1,000-row sample; a full scan adds keys that only other rows have.
+	let scannedColumns: ColumnSchema['columns'] = $state.raw([]);
+	$effect(() => {
+		const s = schema;
+		const h = handle;
+		const p = path;
+		scannedColumns = [];
+		if (s.sampled >= s.rowCount) return;
+		const jobId = crypto.randomUUID();
+		let cancelled = false;
+		void ipc.docScanColumns(h, p, jobId).then(
+			(all) => {
+				if (cancelled) return;
+				const known = new Set(s.columns.map((c) => c.key));
+				scannedColumns = all.filter((c) => !known.has(c.key));
+			},
+			(e) => {
+				if (!cancelled) onError(describeError(e));
+			},
+		);
+		return () => {
+			cancelled = true;
+			void ipc.cancelJob(jobId).catch(() => {});
+		};
+	});
+	const columns = $derived(
+		scannedColumns.length > 0 ? [...schema.columns, ...scannedColumns] : schema.columns,
+	);
+
 	const filter = new GridFilterController({
 		handle: () => handle,
 		path: () => path,
-		columns: () => schema.columns,
+		columns: () => columns,
 		onError: (msg) => onError(msg),
 	});
 
@@ -75,8 +106,8 @@
 
 	let colOrder: string[] = $state.raw([]);
 	const orderedColumns = $derived.by(() => {
-		if (colOrder.length === 0) return schema.columns;
-		const byKey = new Map(schema.columns.map((c) => [c.key, c]));
+		if (colOrder.length === 0) return columns;
+		const byKey = new Map(columns.map((c) => [c.key, c]));
 		const out: typeof schema.columns = [];
 		for (const k of colOrder) {
 			const c = byKey.get(k);
@@ -85,7 +116,7 @@
 				byKey.delete(k);
 			}
 		}
-		for (const c of schema.columns) if (byKey.has(c.key)) out.push(c);
+		for (const c of columns) if (byKey.has(c.key)) out.push(c);
 		return out;
 	});
 
@@ -99,7 +130,7 @@
 		colWidth = new Map(colWidth).set(key, w);
 	}
 	function autoFit(key: string) {
-		const col = schema.columns.find((c) => c.key === key);
+		const col = columns.find((c) => c.key === key);
 		if (!col) return;
 		const w = autoFitWidthPx(col, data.loadedColumnTexts(key), MIN_COL_PX, MAX_COL_PX);
 		colWidth = new Map(colWidth).set(key, w);
@@ -201,20 +232,22 @@
 		onError: (msg) => onError(msg),
 	});
 
+	const queryKey = $derived(JSON.stringify(filter.query));
+
 	const colWindow = $derived(
 		columnWindow(columnLayout, data.scroller.scrollLeft, data.scroller.viewportWidth, COL_OVERSCAN),
 	);
 
 	$effect(() => {
 		void data.chunks;
-		void filter.query;
+		void queryKey;
 		data.fetchVisible();
 	});
 
 	$effect(() => {
 		void handle;
 		void schema;
-		void filter.query;
+		void queryKey;
 		data.reset();
 		data.scroller.resetTop();
 	});
@@ -276,7 +309,7 @@
 	$effect(() => {
 		void handle;
 		void schema;
-		void filter.query;
+		void queryKey;
 		selection.reset();
 	});
 
@@ -296,7 +329,7 @@
 		fetching={data.fetching}
 		filteredTotal={data.filteredTotal}
 		rowCount={schema.rowCount}
-		colCount={schema.columns.length}
+		colCount={columns.length}
 		sortKey={filter.sortKey}
 		sortDesc={filter.sortDesc}
 		selectedCount={selection.selectedRows.size}

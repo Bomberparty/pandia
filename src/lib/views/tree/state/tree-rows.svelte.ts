@@ -107,7 +107,8 @@ export class TreeRowsController {
 			const cur = this.rows[index];
 			if (cur?.variant !== 'content' || cur.expanded || pathKey(cur.path) !== key) return;
 			let total = cur.childCount;
-			if (total === null && children.length >= CHUNK) {
+			if (total === null && children.length < CHUNK) total = children.length;
+			if (total === null) {
 				const handle = this.deps.handle();
 				if (handle) {
 					try {

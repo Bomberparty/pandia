@@ -24,7 +24,7 @@ vi.mock('$lib/shell/state/recents-store.svelte', () => ({ addRecent: vi.fn() }))
 
 const RESULT = { version: 2, affectedPaths: [['a']] };
 
-function setup(findOpen: boolean) {
+function setup() {
 	const calls: string[] = [];
 	vi.mocked(ipc.docSummary).mockImplementation(async () => {
 		calls.push('summary');
@@ -38,8 +38,6 @@ function setup(findOpen: boolean) {
 		toggleAt: vi.fn(),
 	} as unknown as TreeRowsController;
 	const find = {
-		open: findOpen,
-		query: 'needle',
 		refreshAfterEdit: vi.fn(() => {
 			calls.push('find');
 		}),
@@ -82,14 +80,14 @@ describe('DocSessionController — the post-mutation protocol', () => {
 	});
 
 	it('applyOp refreshes summary before refetching tree paths, then re-runs Find', async () => {
-		const { session, calls } = setup(true);
+		const { session, calls } = setup();
 		const r = await session.applyOp({ kind: 'deleteKey', path: [], key: 'x' });
 		expect(r).toEqual(RESULT);
 		expect(calls).toEqual(['summary', 'refetch', 'find']);
 	});
 
 	it('undo and redo follow the same protocol — stale Find hits refresh too', async () => {
-		const { session, calls } = setup(true);
+		const { session, calls } = setup();
 		await session.undo();
 		expect(calls).toEqual(['summary', 'refetch', 'find']);
 		calls.length = 0;
@@ -97,15 +95,8 @@ describe('DocSessionController — the post-mutation protocol', () => {
 		expect(calls).toEqual(['summary', 'refetch', 'find']);
 	});
 
-	it('a closed Find is not re-run', async () => {
-		const { session, calls, find } = setup(false);
-		await session.applyOp({ kind: 'deleteKey', path: [], key: 'x' });
-		expect(calls).toEqual(['summary', 'refetch']);
-		expect(find.refreshAfterEdit).not.toHaveBeenCalled();
-	});
-
 	it('an exhausted undo stack short-circuits the protocol', async () => {
-		const { session, calls } = setup(true);
+		const { session, calls } = setup();
 		vi.mocked(ipc.docUndo).mockResolvedValue(null as never);
 		const r = await session.undo();
 		expect(r).toBeNull();
@@ -113,7 +104,7 @@ describe('DocSessionController — the post-mutation protocol', () => {
 	});
 
 	it('a failing mutation reports the error and skips the refresh chain', async () => {
-		const { session, calls, deps } = setup(true);
+		const { session, calls, deps } = setup();
 		vi.mocked(ipc.docApplyOp).mockRejectedValue(new Error('edit boom'));
 		const r = await session.applyOp({ kind: 'deleteKey', path: [], key: 'x' });
 		expect(r).toBeNull();
@@ -153,7 +144,7 @@ function opened(
 describe('DocSessionController — opening a source', () => {
 	function fresh() {
 		vi.clearAllMocks();
-		const s = setup(false);
+		const s = setup();
 		s.session.handle = null;
 		return s;
 	}
@@ -233,5 +224,23 @@ describe('DocSessionController — opening a source', () => {
 		);
 		expect(session.diagnosis).toEqual(diagnosis);
 		expect(session.handle).toBeNull();
+	});
+
+	it('keeps the file name when the suggested fix for a failed open is applied', async () => {
+		const { session } = fresh();
+		vi.mocked(ipc.docOpen)
+			.mockResolvedValueOnce({
+				kind: 'failed',
+				detail: 'trailing comma at line 1 column 9',
+				tooLargeToFix: false,
+				diagnosis: { title: 'One comma too many', detail: 'x', excerpt: null, fix: null },
+			})
+			.mockResolvedValueOnce(opened('config.json'));
+		await session.loadFromSource({ kind: 'file', path: '/w/config.json' });
+		await session.applyDiagnosisFix('{"a": 1}');
+		expect(ipc.docOpen).toHaveBeenLastCalledWith(
+			{ kind: 'text', text: '{"a": 1}', name: 'config.json' },
+			{ repair: true },
+		);
 	});
 });

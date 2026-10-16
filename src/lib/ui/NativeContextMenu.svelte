@@ -121,8 +121,8 @@
 			const start = s ?? value.length;
 			const end = e ?? value.length;
 			editableTarget.value = value.slice(0, start) + text + value.slice(end);
-			editableTarget.setSelectionRange(start + text.length, start + text.length);
 			editableTarget.dispatchEvent(new Event('input', { bubbles: true }));
+			editableTarget.setSelectionRange(start + text.length, start + text.length);
 		} catch {
 			// ignore
 		}
@@ -151,15 +151,11 @@
 
 		const onContextMenu = (e: MouseEvent) => {
 			const target = e.target as HTMLElement | null;
-			// Inputs/textareas and the code editor only — anywhere else we just suppress the native
-			// menu and don't show our own. (Selectable read-only text gets its
-			// Copy via ⌘C; we don't want to wrap every DOM string in a menu.)
 			const editable = isEditable(target) ? target : null;
 			const cm = target?.isContentEditable ? target.closest<HTMLElement>('.cm-editor') : null;
 			const editor = cm && EditorView.findFromDOM(cm);
 			const selectionText = editor ? getEditorSelectionText(editor) : getSelectionText();
 
-			// If there's literally nothing to do, just kill the native menu.
 			if (!editable && !editor && !selectionText) {
 				e.preventDefault();
 				return;

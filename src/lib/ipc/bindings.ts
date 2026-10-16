@@ -19,6 +19,7 @@ export const commands = {
 	docSummary: (handle: DocHandle) => __TAURI_INVOKE<Summary>("doc_summary", { handle }),
 	docChildCount: (handle: DocHandle, path: Path) => __TAURI_INVOKE<number | null>("doc_child_count", { handle, path }),
 	docColumnSchema: (handle: DocHandle, path: Path) => __TAURI_INVOKE<ColumnSchema>("doc_column_schema", { handle, path }),
+	docScanColumns: (handle: DocHandle, path: Path, jobId: string) => __TAURI_INVOKE<Column[]>("doc_scan_columns", { handle, path, jobId }),
 	docApplyOp: (handle: DocHandle, op: Op) => __TAURI_INVOKE<ApplyResult>("doc_apply_op", { handle, op }),
 	docSetRootText: (handle: DocHandle, text: string) => __TAURI_INVOKE<ApplyResult>("doc_set_root_text", { handle, text }),
 	docUndo: (handle: DocHandle) => __TAURI_INVOKE<{
@@ -148,7 +149,7 @@ export type DiffKind = "added" | "removed" | "changed" | "moved";
 
 export type DocHandle = string;
 
-export type ErrorKind = "notFound" | "invalidPath" | "tooLarge" | "rangeTooLarge" | "tooDeep" | "parse" | "edit" | "schema" | "export" | "io" | "cancelled";
+export type ErrorKind = "notFound" | "invalidPath" | "tooLarge" | "rangeTooLarge" | "tooDeep" | "parse" | "edit" | "schema" | "schemaExternalRef" | "export" | "io" | "cancelled";
 
 export type ExportFormat = "json" | "json-min" | "yaml" | "csv" | "xml";
 

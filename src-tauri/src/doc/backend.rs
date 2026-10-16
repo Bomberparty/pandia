@@ -16,6 +16,12 @@ pub(crate) trait DocumentBackend {
     fn get_value(&self, path: &Path) -> DocResult<Value>;
     fn column_cells(&self, path: &Path, key: &str) -> DocResult<Vec<Option<Value>>>;
     fn column_text_lower(&self, path: &Path, key: &str) -> DocResult<Vec<Option<String>>>;
+    fn for_each_row_field(
+        &self,
+        path: &Path,
+        cancel: &CancelFlag,
+        f: &mut dyn FnMut(&str, NodeKind),
+    ) -> DocResult<u32>;
     fn search(&self, opts: &SearchOptions, cancel: &CancelFlag) -> Vec<SearchHit>;
     fn generate_types(&self, lang: TypegenLang, type_name: &str) -> DocResult<String>;
     fn hash_into(&self, hasher: &mut blake3::Hasher) -> Result<(), ()>;
@@ -72,6 +78,25 @@ mod conformance {
             p(&[k("note")]),
             p(&[k("big")]),
         ]
+    }
+
+    #[test]
+    fn row_fields_agree() {
+        let (eager, lazy) = backends();
+        let fields = |b: &dyn DocumentBackend| {
+            let mut seen = Vec::new();
+            let rows = b
+                .for_each_row_field(&p(&[k("users")]), &CancelFlag::never(), &mut |key, kind| {
+                    seen.push((key.to_string(), kind))
+                })
+                .unwrap();
+            (rows, seen)
+        };
+        let (rows, seen) = fields(&eager);
+        assert_eq!((rows, seen.clone()), fields(&lazy));
+        assert_eq!(rows, 3);
+        assert_eq!(seen.len(), 12);
+        assert!(seen.contains(&("score".to_string(), NodeKind::Null)));
     }
 
     #[test]
@@ -160,6 +185,31 @@ mod conformance {
             let l = DocumentBackend::search(&lazy, &opts, &CancelFlag::never());
             assert_eq!(e, l, "search {query}");
         }
+    }
+
+    #[test]
+    fn previews_agree_for_large_containers_and_negative_zero() {
+        let rows: Vec<String> = (0..10_000).map(|n| format!(r#"{{"n":{n}}}"#)).collect();
+        let text = format!(r#"{{"big": [{}], "zero": -0}}"#, rows.join(","));
+        let eager: Value = serde_json::from_str(&text).unwrap();
+        let lazy = LazyDoc::new(text.into()).unwrap();
+        for query in ["big", "zero"] {
+            let opts = SearchOptions {
+                query: query.into(),
+                case_sensitive: false,
+                max_results: None,
+            };
+            assert_eq!(
+                DocumentBackend::search(&eager, &opts, &CancelFlag::never()),
+                DocumentBackend::search(&lazy, &opts, &CancelFlag::never()),
+                "search {query}"
+            );
+        }
+        assert_eq!(
+            DocumentBackend::slice(&eager, &Path::root(), 1..2).ok(),
+            DocumentBackend::slice(&lazy, &Path::root(), 1..2).ok(),
+            "tree row for -0"
+        );
     }
 
     #[test]

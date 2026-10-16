@@ -193,6 +193,42 @@ describe('DocumentSession — Find after an edit', () => {
 		}
 	});
 
+	it('searches again when Find is reopened after an edit made while it was closed', async () => {
+		const { doc, destroy } = findOpen();
+		try {
+			vi.spyOn(doc.nav, 'navigateTo').mockResolvedValue();
+			vi.mocked(ipc.docSearch).mockResolvedValue(hits(twenty));
+			await doc.find.runSearch('name');
+			doc.find.close();
+
+			vi.mocked(ipc.docSearch).mockResolvedValue(hits([0, 1]));
+			vi.mocked(ipc.docApplyOp).mockResolvedValue(EDITED as never);
+			await doc.session.applyOp({ kind: 'deleteKey', path: [], key: 'x' });
+			doc.find.openFind();
+			await settle();
+
+			expect(doc.find.counter).toBe('1 / 2');
+		} finally {
+			destroy();
+		}
+	});
+
+	it('reopening Find without an edit reuses the hits it has', async () => {
+		const { doc, destroy } = findOpen();
+		try {
+			vi.spyOn(doc.nav, 'navigateTo').mockResolvedValue();
+			vi.mocked(ipc.docSearch).mockClear().mockResolvedValue(hits(twenty));
+			await doc.find.runSearch('name');
+			doc.find.close();
+			doc.find.openFind();
+			await settle();
+
+			expect(ipc.docSearch).toHaveBeenCalledTimes(1);
+		} finally {
+			destroy();
+		}
+	});
+
 	it('in Code view, recounts the matches in the editor and stays in Code view', async () => {
 		const cmCount = vi.fn(() => 2);
 		const api = { cmCount } as unknown as CodeViewApi;

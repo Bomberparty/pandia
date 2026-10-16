@@ -84,6 +84,21 @@ describe('NativeContextMenu — in a popover', () => {
 		await vi.waitFor(() => expect(input.value).toBe('X'));
 		action.destroy();
 	});
+
+	it('pastes into a number field and reports the change', async () => {
+		clipboard.readText.mockResolvedValueOnce('42');
+		const input = document.createElement('input');
+		input.type = 'number';
+		const onInput = vi.fn();
+		input.addEventListener('input', onInput);
+		document.body.append(input);
+
+		await fireEvent.contextMenu(input);
+		await fireEvent.click(screen.getByText('Paste'));
+
+		await vi.waitFor(() => expect(onInput).toHaveBeenCalled());
+		expect(input.value).toBe('42');
+	});
 });
 
 describe('NativeContextMenu — focus', () => {

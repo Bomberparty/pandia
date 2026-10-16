@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DocContext } from '$lib/shell/state/workspace.svelte';
 	import type { Path } from '$lib/ipc/bindings';
+	import { ipc } from '$lib/ipc/client';
 	import { lastResult, schemaSessions } from './state/schema-store.svelte';
 	import { behaviorPrefs, SCHEMA_DEBOUNCE_MANUAL } from '$lib/settings/state/behavior-prefs.svelte';
 	import { hasSchemaKeywords } from './schema-keywords';
@@ -21,6 +22,13 @@
 	const problem = $derived(schema.verdict.kind === 'problem' ? schema.verdict.message : null);
 	const manual = $derived(behaviorPrefs.schemaDebounceMs === SCHEMA_DEBOUNCE_MANUAL);
 
+	$effect(() => {
+		const v = schema.verdict;
+		if (v.kind !== 'problem' || !v.retry || !behaviorPrefs.allowHttpSchemas) return;
+		schema.verdict = { kind: 'problem', message: v.message }; // retry once
+		void v.retry();
+	});
+
 	function onSchemaInput(e: Event) {
 		schema.setText((e.target as HTMLTextAreaElement).value);
 	}
@@ -31,6 +39,22 @@
 
 	function onClearSchema() {
 		schema.clear();
+	}
+
+	async function jumpTo(pointer: string) {
+		const handle = context?.handle;
+		if (!handle) return;
+		const path: Path = [];
+		for (const seg of parseJsonPointer(pointer)) {
+			path.push(seg);
+			if (typeof seg !== 'number') continue;
+			try {
+				await ipc.docChildCount(handle, path);
+			} catch {
+				path[path.length - 1] = String(seg);
+			}
+		}
+		onJump?.(path);
 	}
 
 	const noConstraints = $derived.by(() => {
@@ -143,7 +167,7 @@
 						<button
 							type="button"
 							class="err-row notice"
-							onclick={() => onJump?.(parseJsonPointer(err.instancePath))}
+							onclick={() => void jumpTo(err.instancePath)}
 							title={'jump to ' + (err.instancePath || '(root)')}
 						>
 							<code class="err-path">{err.instancePath || '$'}</code>

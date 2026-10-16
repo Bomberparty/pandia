@@ -39,6 +39,10 @@ export async function autoloadSchema(
 	const schema = schemaSessions.for(doc.tabId);
 	schema.documentChanged(doc.handle, doc.version);
 	if (plan.kind === 'invalid') return schema.fail(plan.message, origin);
+	await behaviorPrefs.init();
+	if (plan.target.kind === 'url' && !plan.target.secure && !behaviorPrefs.allowHttpSchemas) {
+		return schema.fail(HTTP_BLOCKED, origin, () => autoloadSchema(doc, confirmRemote));
+	}
 	let text: string | null;
 	try {
 		text = await readTarget(plan.target, plan.from, confirmRemote);
@@ -63,8 +67,6 @@ async function readTarget(
 	confirmRemote: (host: string) => Promise<boolean>,
 ): Promise<string | null> {
 	if (target.kind === 'file') return ipc.readSchemaFile(target.path);
-	await behaviorPrefs.init();
-	if (!target.secure && !behaviorPrefs.allowHttpSchemas) throw new Error(HTTP_BLOCKED);
 	if (from === 'document' && !approvedUrls.has(target.url)) {
 		if (!(await confirmRemote(target.host))) return null;
 		approvedUrls.add(target.url);

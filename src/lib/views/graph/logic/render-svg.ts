@@ -219,6 +219,7 @@ function fitText(m: MeasureCtx, text: string, maxWidth: number): string {
 		if (m.measure(text.slice(0, mid)) + ellWidth <= maxWidth) lo = mid;
 		else hi = mid - 1;
 	}
+	if (/[\ud800-\udbff]/.test(text.charAt(lo - 1))) lo--; // don't split a surrogate pair
 	return text.slice(0, lo) + ell;
 }
 

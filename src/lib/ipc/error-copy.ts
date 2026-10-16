@@ -25,6 +25,16 @@ export function describeOpenFailure(f: Pick<OpenFailure, 'detail' | 'tooLargeToF
 		: base;
 }
 
+export function describeUrlFetchFailure(url: string): string {
+	let host = url;
+	try {
+		host = new URL(url).host;
+	} catch {
+		// not a parseable URL: name what the user typed
+	}
+	return `Couldn't reach ${host}. Check the URL and your connection.`;
+}
+
 export function describeError(e: unknown): string {
 	if (e instanceof IpcError) return describeIpc(e);
 	if (e instanceof Error && e.message.trim()) return sentence(e.message.trim());
@@ -58,6 +68,8 @@ function describeIpc(e: IpcError): string {
 			return withDetail("This edit can't be applied", e.detail);
 		case 'schema':
 			return withDetail("This schema can't be used", e.detail);
+		case 'schemaExternalRef':
+			return `This schema points to another schema at ${e.detail ?? 'another address'}, which Pandia doesn't load. Copy the definitions you need into this schema under "$defs", and point the "$ref" there.`;
 		case 'export':
 			return withDetail('Export failed', e.detail);
 		case 'io':

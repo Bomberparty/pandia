@@ -30,7 +30,9 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
     <p><strong>Heads up —</strong> CSV export needs a root that is an <strong>array of
     objects</strong> — a table. Other shapes (a single object, nested arrays, scalars) can't be
     flattened into rows and columns, so they can't be exported to CSV. The column set is the
-    union of every object's keys; missing cells are left empty.</p>
+    union of every object's keys; missing cells are left empty. Text that starts with
+    <code>=</code>, <code>+</code>, <code>-</code> or <code>@</code> gets a leading
+    <code>'</code>, so a spreadsheet shows it as text instead of running it as a formula.</p>
   </div>
 
   <h2>Graph images</h2>

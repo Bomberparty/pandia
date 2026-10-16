@@ -158,8 +158,10 @@
 		root = { ...root };
 	}
 
+	let collapseGen = 0;
 	function collapseAll() {
 		if (!root) return;
+		collapseGen++;
 		collapseTree(root);
 		root = { ...root };
 		queueMicrotask(() => canvasApi?.fitView());
@@ -180,6 +182,7 @@
 	async function expandAll() {
 		if (!root || expanding) return;
 		expanding = true;
+		const gen = collapseGen;
 		try {
 			const queue: CardRow[] = [];
 			const seed = (card: GraphCard) => {
@@ -196,6 +199,12 @@
 
 				const share = Math.floor(room / batch.length);
 				await Promise.all(batch.map((row) => expandRowFetch(handle, row, share)));
+				if (gen !== collapseGen) {
+					// Collapse all ran while this batch was loading.
+					collapseTree(root);
+					root = { ...root };
+					return;
+				}
 				for (const row of batch) {
 					cardCount += row.children.length;
 					for (const ch of row.children) {
@@ -222,17 +231,19 @@
 	let searchQuery = $state('');
 	let searchActive = $state(0);
 	const searchMatches = $derived(searchOpen && searchQuery ? searchCards(layout, searchQuery) : []);
+	// Expanding or collapsing cards can leave fewer matches than the one you were on.
+	const activeMatch = $derived(Math.min(searchActive, Math.max(0, searchMatches.length - 1)));
 	const searchCounter = $derived.by(() => {
 		if (!searchOpen || !searchQuery.trim()) return '';
 		if (searchMatches.length === 0) return 'no matches';
-		return `${searchActive + 1} / ${searchMatches.length}`;
+		return `${activeMatch + 1} / ${searchMatches.length}`;
 	});
 	const searchHighlightId = $derived(
-		searchMatches.length > 0 ? (searchMatches[searchActive]?.id ?? null) : null,
+		searchMatches.length > 0 ? (searchMatches[activeMatch]?.id ?? null) : null,
 	);
 
 	$effect(() => {
-		const match = searchMatches[searchActive];
+		const match = searchMatches[activeMatch];
 		if (!match || !canvasApi) return;
 		const api = canvasApi;
 		const cx = match.x + match.w / 2;
@@ -253,11 +264,11 @@
 	}
 	function searchNext() {
 		if (searchMatches.length === 0) return;
-		searchActive = (searchActive + 1) % searchMatches.length;
+		searchActive = (activeMatch + 1) % searchMatches.length;
 	}
 	function searchPrev() {
 		if (searchMatches.length === 0) return;
-		searchActive = (searchActive - 1 + searchMatches.length) % searchMatches.length;
+		searchActive = (activeMatch - 1 + searchMatches.length) % searchMatches.length;
 	}
 
 	const api: GraphViewApi = { openSearch };

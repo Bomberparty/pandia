@@ -21,13 +21,20 @@
 	let inputEl: HTMLInputElement | undefined = $state();
 	let listEl: HTMLUListElement | undefined = $state();
 	let pressedBackdrop = false;
+	let ranCommand = false;
 
 	$effect(() => {
-		if (open) {
-			query = '';
-			selectedIdx = 0;
-			queueMicrotask(() => inputEl?.focus());
-		}
+		if (!open) return;
+		query = '';
+		selectedIdx = 0;
+		ranCommand = false;
+		const returnFocus = document.activeElement;
+		queueMicrotask(() => inputEl?.focus());
+		return () => {
+			if (!ranCommand && returnFocus instanceof HTMLElement && returnFocus.isConnected) {
+				returnFocus.focus();
+			}
+		};
 	});
 
 	interface Entry {
@@ -78,6 +85,7 @@
 		const r = results[idx];
 		if (!r) return;
 		commandUsage.bump(r.cmd.id);
+		ranCommand = true;
 		onClose();
 		void r.cmd.run();
 	}
@@ -213,7 +221,8 @@
 		display: grid;
 		grid-template-rows: 22vh 1fr;
 		justify-content: center;
-		z-index: 100;
+		/* above dialogs (2000), so ⌘K over a dialog is seen */
+		z-index: 2100;
 	}
 	.palette {
 		grid-row: 2;

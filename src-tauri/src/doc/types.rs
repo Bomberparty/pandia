@@ -157,6 +157,9 @@ pub enum DocError {
     #[error("schema error: {0}")]
     Schema(String),
 
+    #[error("schema refers to {0}, which Pandia doesn't fetch")]
+    SchemaExternalRef(String),
+
     #[error("export error: {0}")]
     Export(String),
 
@@ -259,6 +262,7 @@ pub enum ErrorKind {
     Parse,
     Edit,
     Schema,
+    SchemaExternalRef,
     Export,
     Io,
     Cancelled,
@@ -289,6 +293,13 @@ impl From<DocError> for WireError {
             DocError::Parse(s) => (ErrorKind::Parse, Some(s.clone()), None, None, None),
             DocError::Edit(s) => (ErrorKind::Edit, Some(s.clone()), None, None, None),
             DocError::Schema(s) => (ErrorKind::Schema, Some(s.clone()), None, None, None),
+            DocError::SchemaExternalRef(uri) => (
+                ErrorKind::SchemaExternalRef,
+                Some(uri.clone()),
+                None,
+                None,
+                None,
+            ),
             DocError::Export(s) => (ErrorKind::Export, Some(s.clone()), None, None, None),
             DocError::Io { source, .. } => {
                 (ErrorKind::Io, Some(source.to_string()), None, None, None)

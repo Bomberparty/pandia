@@ -216,26 +216,28 @@ export type Root = z.infer<typeof Root>;`,
     sub: 'Generate Java classes — plain POJOs with typed fields, getters and setters — from any JSON document. Boxed types and nested classes inferred, nothing uploaded.',
     inputJson: TYPE_INPUT,
     outputLang: 'Java',
-    output: `public class Root {
+    output: `import java.util.List;
+
+public class Root {
+    private Boolean active;
     private Long id;
     private String name;
-    private Boolean active;
     private List<String> tags;
 
+    public Boolean getActive() { return this.active; }
+    public void setActive(Boolean active) { this.active = active; }
     public Long getId() { return this.id; }
     public void setId(Long id) { this.id = id; }
     public String getName() { return this.name; }
     public void setName(String name) { this.name = name; }
-    public Boolean getActive() { return this.active; }
-    public void setActive(Boolean active) { this.active = active; }
     public List<String> getTags() { return this.tags; }
     public void setTags(List<String> tags) { this.tags = tags; }
 }`,
-    intro: 'Pandia turns a JSON document into Java classes — classic POJOs with private fields and public getters and setters. Numbers use boxed types (<code>Long</code>, <code>Double</code>) so nulls are representable, and nested objects and arrays become their own classes and <code>List&lt;T&gt;</code> fields.',
+    intro: 'Pandia turns a JSON document into Java classes — classic POJOs with private fields and public getters and setters. Numbers use boxed types (<code>Long</code>, <code>Double</code>) so nulls are representable, nested objects become nested classes, and arrays become <code>List&lt;T&gt;</code> fields. The output compiles as one file.',
     bullets: [
       'POJO classes with private fields plus public getters and setters.',
       'Boxed types (<code>Long</code>, <code>Double</code>, <code>Boolean</code>) so every field is nullable.',
-      'Nested objects and arrays become named classes and <code>List&lt;T&gt;</code>.',
+      'Nested objects become nested <code>static</code> classes, and arrays become <code>List&lt;T&gt;</code>.',
       'Works with Jackson or Gson — add annotations if your setup needs them.',
     ],
     faq: [

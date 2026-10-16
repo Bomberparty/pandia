@@ -388,24 +388,42 @@ describe('Workspace: restoring tabs', () => {
 		const ws = new Workspace(p);
 		vi.mocked(loadOpenTabs).mockResolvedValue({
 			paths: ['/w/a.json', '/w/big.json', '/w/c.json'],
-			activeIndex: 1,
+			activeIndex: 2,
 		});
 		vi.mocked(stat).mockImplementation(
 			async (path) => ({ size: String(path).includes('big') ? LARGE : 10 }) as never,
 		);
 		p.confirmLargeFile.mockResolvedValue(false);
 
-		await ws.restore();
+		await ws.restore(Promise.resolve());
 		const opened = Object.values(ws.pendingOpens).map((s) => (s && 'path' in s ? s.path : null));
 		expect(opened).toEqual(['/w/a.json', '/w/c.json']);
 		expect(ws.activeId).toBe(ws.tabs[1]?.id);
+	});
+
+	it('waits for files handed in at launch, then skips restoring', async () => {
+		const ws = new Workspace(prompts());
+		vi.mocked(loadOpenTabs).mockResolvedValue({ paths: ['/w/old.json'], activeIndex: 0 });
+		let statDone!: () => void;
+		vi.mocked(stat).mockImplementationOnce(
+			() => new Promise((r) => (statDone = () => r({ size: 10 } as never))),
+		);
+		const launch = openTab(ws, '/w/from-cli.json').then(() => {});
+		const restoring = ws.restore(launch);
+		await vi.waitFor(() => expect(statDone).toBeDefined());
+		await new Promise((r) => setTimeout(r, 0)); // let restore read the saved tabs first
+		statDone();
+		await Promise.all([launch, restoring]);
+		expect(Object.values(ws.pendingOpens).filter(Boolean)).toEqual([
+			{ kind: 'file', path: '/w/from-cli.json' },
+		]);
 	});
 
 	it('skips restoring when a launch already queued files', async () => {
 		const ws = new Workspace(prompts());
 		await openTab(ws, '/w/from-cli.json');
 		vi.mocked(loadOpenTabs).mockResolvedValue({ paths: ['/w/old.json'], activeIndex: 0 });
-		await ws.restore();
+		await ws.restore(Promise.resolve());
 		expect(ws.tabs).toHaveLength(1);
 	});
 

@@ -104,7 +104,6 @@ fn open_with_fix_limit(
     fix_limit: u64,
 ) -> DocResult<OpenOutcome> {
     let (text, name, file_path) = read_source(source)?;
-    // Shared with the document, not copied; kept here for the fix-up paths below.
     let text = FastStr::from_string(text);
     let detail = match Document::from_source(text.clone(), name.clone()) {
         Ok(mut doc) => {
@@ -644,6 +643,28 @@ pub async fn doc_column_schema(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn doc_scan_columns(
+    state: tauri::State<'_, Arc<DocStore>>,
+    jobs: tauri::State<'_, Arc<crate::doc::jobs::JobRegistry>>,
+    handle: DocHandle,
+    path: Path,
+    job_id: String,
+) -> Result<Vec<crate::doc::types::Column>, WireError> {
+    let store = state.inner().clone();
+    let cancel = jobs.register(job_id.clone());
+    let flag = cancel.clone();
+    let result = run_blocking(move || {
+        store.read(handle, |doc| {
+            crate::doc::schema::scan_columns(doc, &path, &flag)
+        })
+    })
+    .await;
+    jobs.unregister(&job_id, &cancel);
+    result
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn doc_apply_op(
     state: tauri::State<'_, Arc<DocStore>>,
     handle: DocHandle,
@@ -932,7 +953,10 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, body).unwrap();
         let path = path.to_string_lossy().into_owned();
-        super::doc_open_inner(store, OpenSource::File { path }, OpenOptions { repair }).unwrap()
+        let outcome =
+            super::doc_open_inner(store, OpenSource::File { path }, OpenOptions { repair });
+        std::fs::remove_dir_all(&dir).unwrap();
+        outcome.unwrap()
     }
 
     fn diff(store: &DocStore, left: DocHandle, right: DocHandle) -> DocResult<Vec<DiffEntry>> {
@@ -1141,7 +1165,7 @@ mod tests {
         let file = std::fs::File::create(&handoff).unwrap();
         file.set_len(crate::doc::document::MAX_DOC_BYTES + 1)
             .unwrap();
-        // Unreadable, so only a size check made before reading can report TooLarge.
+
         std::fs::set_permissions(&handoff, std::fs::Permissions::from_mode(0o000)).unwrap();
         let path = handoff.to_string_lossy().into_owned();
 
@@ -1661,12 +1685,9 @@ mod tests {
         assert!(matches!(err, DocError::TooLarge { .. }));
     }
 
-    /// Runs `diff` on two slow-to-compare documents and edits the left one meanwhile.
-    /// Returns how long the edit waited and how long the diff took.
     fn edit_wait_during(
         diff: impl FnOnce(&DocStore, DocHandle, DocHandle) + Send + 'static,
     ) -> (std::time::Duration, std::time::Duration) {
-        // Few distinct lines in random order push the diff onto its slow path.
         let mut seed = 7u64;
         let mut digits = || {
             let items: Vec<String> = (0..8_000)
@@ -1724,8 +1745,6 @@ mod tests {
         );
     }
 
-    /// A save target whose write blocks until the test reads it: a named pipe in a
-    /// read-only folder, so the save can't use a temp file and writes the pipe itself.
     #[cfg(unix)]
     struct SlowTarget {
         dir: std::path::PathBuf,

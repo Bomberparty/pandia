@@ -338,6 +338,10 @@ fn infer_cell(s: &str) -> serde_json::Value {
     if t.eq_ignore_ascii_case("null") {
         return serde_json::Value::Null;
     }
+    let digits = t.strip_prefix('-').unwrap_or(t);
+    if digits.len() > 1 && digits.starts_with('0') && digits.as_bytes()[1].is_ascii_digit() {
+        return serde_json::Value::String(s.to_string());
+    }
     if let Ok(n) = t.parse::<i64>() {
         return serde_json::json!(n);
     }
@@ -377,6 +381,7 @@ fn convert_curl(text: &str) -> DetectResult {
     let mut method: Option<String> = None;
     let mut headers: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     let mut body: Option<String> = None;
+    let mut bare: Vec<String> = Vec::new();
 
     while let Some(tok) = iter.next() {
         match tok.as_str() {
@@ -395,7 +400,7 @@ fn convert_curl(text: &str) -> DetectResult {
                     }
                 }
             }
-            "-d" | "--data" | "--data-raw" | "--data-binary" => {
+            "-d" | "--data" | "--data-raw" | "--data-binary" | "--json" => {
                 if let Some(v) = iter.next() {
                     body = Some(v);
                 }
@@ -409,12 +414,17 @@ fn convert_curl(text: &str) -> DetectResult {
             | "--cookie" | "-b" | "--cookie-jar" | "-c" => {
                 let _ = iter.next();
             }
-            other if !other.starts_with('-') && url.is_none() => {
-                url = Some(other.to_string());
-            }
+            other if !other.starts_with('-') => bare.push(other.to_string()),
             _ => {}
         }
     }
+
+    let url = url.or_else(|| {
+        bare.iter()
+            .find(|t| t.contains("://"))
+            .or(bare.first())
+            .cloned()
+    });
 
     let final_method = method.unwrap_or_else(|| {
         if body.is_some() {
@@ -582,6 +592,35 @@ mod tests {
         assert_eq!(v[0]["note"], "hello");
         assert_eq!(v[1]["flag"], false);
         assert!(v[1]["note"].is_null());
+    }
+
+    #[test]
+    fn csv_keeps_leading_zeros() {
+        let v = assert_json(&detect_and_convert("zip,code\n00501,0\n0.5,-007\n").json);
+        assert_eq!(
+            v,
+            serde_json::json!([{"zip": "00501", "code": 0}, {"zip": 0.5, "code": "-007"}])
+        );
+    }
+
+    #[test]
+    fn curl_option_values_are_not_taken_as_the_url() {
+        for (cmd, method) in [
+            ("curl -m 30 https://x.dev/a", "GET"),
+            ("curl --connect-timeout 5 'https://x.dev/a'", "GET"),
+            ("curl -H 'Accept: x' https://x.dev/a", "GET"),
+            ("curl -X POST https://x.dev/a", "POST"),
+        ] {
+            let v = assert_json(&detect_and_convert(cmd).json);
+            assert_eq!(v["url"], "https://x.dev/a", "{cmd}");
+            assert_eq!(v["method"], method, "{cmd}");
+        }
+        let v = assert_json(&detect_and_convert(r#"curl --json '{"a":1}' https://x.dev/a"#).json);
+        assert_eq!(v["url"], "https://x.dev/a");
+        assert_eq!(v["method"], "POST");
+        assert_eq!(v["body"], serde_json::json!({"a": 1}));
+        let bare = assert_json(&detect_and_convert("curl example.com/api").json);
+        assert_eq!(bare["url"], "example.com/api");
     }
 
     #[test]

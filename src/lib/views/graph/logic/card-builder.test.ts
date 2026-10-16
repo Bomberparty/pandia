@@ -64,6 +64,17 @@ describe('expandRow — a long array of objects', () => {
 	});
 });
 
+describe('buildCard — more children than a card shows', () => {
+	it('ends the card with a "… N more" row for the children it leaves out', async () => {
+		doc = Array.from({ length: 10_000 }, (_, i) => ({ id: i }));
+		const card = await buildCard('h' as never, [], 'array');
+
+		expect(card.rows).toHaveLength(5001);
+		expect(card.rows[4999]?.key).toBe('[4999]');
+		expect(card.rows[5000]).toMatchObject({ key: '…', value: '5,000 more', expandable: false });
+	});
+});
+
 describe('reopenRows — rebuilding after an edit', () => {
 	const h = 'h' as never;
 	// Opens `users`, then the `pet` row of users[1].

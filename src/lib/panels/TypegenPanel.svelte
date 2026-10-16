@@ -2,7 +2,7 @@
 	import type { DocContext } from '$lib/shell/state/workspace.svelte';
 	import { ipc } from '$lib/ipc/client';
 	import { describeError } from '$lib/ipc/error-copy';
-	import type { TypegenLang } from '$lib/ipc/bindings';
+	import type { DocHandle, TypegenLang } from '$lib/ipc/bindings';
 	import { typegenPrefs, TYPEGEN_LANGS } from './state/typegen-prefs.svelte';
 	import { stem } from '$lib/util/path';
 	import { CopyFlag } from '$lib/util/clipboard.svelte';
@@ -19,6 +19,7 @@
 	let busy = $state(false);
 	let error: string | null = $state(null);
 	let seq = 0;
+	let outputHandle: DocHandle | null = null;
 	const copyFlag = new CopyFlag();
 
 	const lang = $derived(typegenPrefs.activeLang);
@@ -44,6 +45,10 @@
 		const mySeq = ++seq;
 		busy = true;
 		error = null;
+		if (context.handle !== outputHandle) {
+			output = ''; // another tab's types; an edit to this tab keeps them until the new ones land
+			outputHandle = context.handle;
+		}
 		try {
 			const typeName = deriveTypeName(context.sourceName);
 			const text = await ipc.docGenerateTypes(context.handle, lang, typeName);

@@ -5,7 +5,7 @@ import { ipc } from '$lib/ipc/client';
 import { kindOf } from '$lib/ipc/wire';
 import type { NodeView } from '$lib/ipc/bindings';
 import { layoutGraph, type PositionedCard } from '../logic/layout';
-import GraphView from './GraphView.svelte';
+import GraphView, { type GraphViewApi } from './GraphView.svelte';
 
 vi.mock('$lib/ipc/client', () => ({ ipc: { docGetSlice: vi.fn(), docChildCount: vi.fn() } }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: vi.fn() }));
@@ -93,6 +93,60 @@ describe('GraphView — card budgets', () => {
 		await vi.waitFor(() => expect(expandAll).toHaveProperty('disabled', false));
 
 		expect(cards().length).toBeLessThanOrEqual(500);
+	});
+});
+
+describe('GraphView — Collapse all', () => {
+	it('wins over an Expand all that is still running', async () => {
+		const group = Array.from({ length: 200 }, (_, i) => ({ id: i }));
+		open(Object.fromEntries(Array.from({ length: 30 }, (_, g) => [`g${g}`, group])));
+		await vi.waitFor(() => expect(cards().length).toBeGreaterThan(1));
+
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		const fetch = vi.mocked(ipc.docGetSlice).getMockImplementation()!;
+		vi.mocked(ipc.docGetSlice).mockImplementation(async (...args) => {
+			await gate;
+			return fetch(...args);
+		});
+
+		const expandAll = screen.getByRole('button', { name: 'Expand all' });
+		await fireEvent.click(expandAll);
+		await fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+		release();
+		await vi.waitFor(() => expect(expandAll).toHaveProperty('disabled', false));
+
+		expect(cards()).toHaveLength(1);
+	});
+});
+
+describe('GraphView — search', () => {
+	it('keeps the match counter in range when the graph shrinks', async () => {
+		let api: GraphViewApi | null = null;
+		doc = { items: Array.from({ length: 10 }, (_, i) => ({ id: i })) };
+		const { container } = render(GraphView, {
+			props: {
+				handle: 'h' as never,
+				version: 1,
+				rootKind: 'object',
+				rootChildCount: 1,
+				onPickPath: vi.fn(),
+				onReady: (a) => (api = a),
+			},
+		});
+		await vi.waitFor(() => expect(cards()).toHaveLength(11));
+		api!.openSearch();
+		await fireEvent.input(await screen.findByLabelText('graph search query'), {
+			target: { value: 'item' },
+		});
+		for (let i = 0; i < 4; i++) {
+			await fireEvent.click(screen.getByRole('button', { name: 'Next match' }));
+		}
+		const counter = () => container.querySelector('.sf-counter')?.textContent;
+		expect(counter()).toBe('5 / 11');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+		expect(counter()).toBe('1 / 1');
 	});
 });
 

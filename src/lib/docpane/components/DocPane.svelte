@@ -143,7 +143,9 @@
 	let exportOpen = $state(false);
 
 	$effect(() => {
-		if (nav.selectedPath !== null && nav.selectedIndex === -1) {
+		void tree.rows;
+		const path = nav.selectedPath;
+		if (path !== null && !session.refreshing && tree.contentRowIdx(path) === -1) {
 			nav.select(null);
 		}
 	});

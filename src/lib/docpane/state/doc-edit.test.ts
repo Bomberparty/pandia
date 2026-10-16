@@ -100,8 +100,11 @@ describe('DocEditController truncated-string open', () => {
 		await ctrl.startValue(0);
 		expect(ctrl.state?.buffer).toBe(FULL);
 
+		ctrl.input(`${FULL}!`);
 		await ctrl.commit();
-		expect(applied).toEqual([{ kind: 'setValueText', path: ['a'], text: JSON.stringify(FULL) }]);
+		expect(applied).toEqual([
+			{ kind: 'setValueText', path: ['a'], text: JSON.stringify(`${FULL}!`) },
+		]);
 	});
 
 	it('no handle means no editor for a truncated preview', async () => {
@@ -116,6 +119,19 @@ describe('DocEditController truncated-string open', () => {
 		await ctrl.startValue(0);
 		expect(ctrl.state?.buffer).toBe('hello');
 		expect(vi.mocked(ipc.docGetValue)).not.toHaveBeenCalled();
+	});
+
+	it('leaving an untouched string commits nothing, short or truncated', async () => {
+		const short = setup('"hello"');
+		await short.ctrl.startValue(0);
+		await short.ctrl.commit();
+		expect(short.applied).toEqual([]);
+
+		vi.mocked(ipc.docGetValue).mockResolvedValue(asLosslessText(JSON.stringify(FULL)));
+		const long = setup(TRUNCATED_PREVIEW);
+		await long.ctrl.startValue(0);
+		await long.ctrl.commit();
+		expect(long.applied).toEqual([]);
 	});
 });
 

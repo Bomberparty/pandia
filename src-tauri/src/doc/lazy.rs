@@ -757,8 +757,10 @@ fn infer_lazy(lv: &LazyValue<'_>) -> TypeShape {
         JsonType::Boolean => TypeShape::Primitive(PrimitiveKind::Bool),
         JsonType::Number => {
             let raw = lv.as_raw_str();
-            if raw.parse::<i64>().is_ok() || raw.parse::<u64>().is_ok() {
+            if raw.parse::<i64>().is_ok() {
                 TypeShape::Primitive(PrimitiveKind::Integer)
+            } else if raw.parse::<u64>().is_ok() {
+                TypeShape::Primitive(PrimitiveKind::Unsigned)
             } else {
                 TypeShape::Primitive(PrimitiveKind::Float)
             }
@@ -806,7 +808,7 @@ fn preview_lazy(lv: &LazyValue<'_>) -> String {
     match lv.get_type() {
         JsonType::Null => "null".into(),
         JsonType::Boolean => lv.as_bool().unwrap_or(false).to_string(),
-        JsonType::Number => lv.as_raw_str().to_string(),
+        JsonType::Number => number_preview(lv),
         JsonType::String => {
             let s = lv.as_str().unwrap_or("");
             if s.chars().count() > CAP {
@@ -816,15 +818,21 @@ fn preview_lazy(lv: &LazyValue<'_>) -> String {
                 format!("\"{s}\"")
             }
         }
-        JsonType::Object => match maybe_count(lv, NodeKind::Object) {
+        JsonType::Object => match count_uncapped(lv, NodeKind::Object) {
             Some(n) => format!("{{{n} keys}}"),
             None => "{\u{2026}}".into(),
         },
-        JsonType::Array => match maybe_count(lv, NodeKind::Array) {
+        JsonType::Array => match count_uncapped(lv, NodeKind::Array) {
             Some(n) => format!("[{n} items]"),
             None => "[\u{2026}]".into(),
         },
     }
+}
+
+fn number_preview(lv: &LazyValue<'_>) -> String {
+    let raw = lv.as_raw_str();
+    serde_json::from_str::<serde_json::Number>(raw)
+        .map_or_else(|_| raw.to_string(), |n| n.to_string())
 }
 
 fn node_view(key: PathSegment, lv: &LazyValue<'_>) -> NodeView {
@@ -865,6 +873,34 @@ impl super::backend::DocumentBackend for LazyDoc {
 
     fn column_text_lower(&self, path: &Path, key: &str) -> DocResult<Vec<Option<String>>> {
         self.array_field_text_lower(path, key)
+    }
+
+    fn for_each_row_field(
+        &self,
+        path: &Path,
+        cancel: &CancelFlag,
+        f: &mut dyn FnMut(&str, NodeKind),
+    ) -> DocResult<u32> {
+        let Some(spans) = self.array_spans(path)? else {
+            return Ok(0);
+        };
+        let src = self.source.as_str();
+        for (i, (b, e)) in spans.iter().enumerate() {
+            if i % 4096 == 0 && cancel.is_cancelled() {
+                return Err(DocError::Cancelled);
+            }
+
+            let row = unsafe {
+                sonic_rs::get_from_str_unchecked(&src[*b as usize..*e as usize], EMPTY_PATH)
+            };
+            let Some(fields) = row.ok().and_then(|lv| lv.into_object_iter()) else {
+                continue;
+            };
+            for (k, v) in fields.flatten() {
+                f(&k, json_type_to_node_kind(v.get_type()));
+            }
+        }
+        Ok(spans.len() as u32)
     }
 
     fn search(
@@ -958,7 +994,7 @@ fn preview(lv: &LazyValue<'_>, kind: NodeKind, child_count: Option<u32>) -> Stri
     match kind {
         NodeKind::Null => "null".into(),
         NodeKind::Bool => lv.as_bool().unwrap_or(false).to_string(),
-        NodeKind::Number => lv.as_raw_str().to_string(),
+        NodeKind::Number => number_preview(lv),
         NodeKind::String => match lv.as_str() {
             Some(s) => quote_preview(s),
             None => String::new(),
@@ -1191,7 +1227,7 @@ mod tests {
     #[test]
     fn lazy_typegen_matches_eager() {
         use crate::doc::typegen::{generate, generate_from_shape, TypegenLang};
-        let json = r#"{"id":1,"name":"x","tags":["a","b"],"meta":{"k":1.5,"big":18446744073709551616},"opt":null,"rows":[{"a":1},{"a":2,"b":3}]}"#;
+        let json = r#"{"id":1,"uid":18446744073709551615,"name":"x","tags":["a","b"],"meta":{"k":1.5,"big":18446744073709551616},"opt":null,"rows":[{"a":1},{"a":2,"b":3}]}"#;
         let lazy = doc(json);
         let v: Value = serde_json::from_str(json).unwrap();
         for lang in [

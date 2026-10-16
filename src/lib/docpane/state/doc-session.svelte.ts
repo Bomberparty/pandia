@@ -82,11 +82,13 @@ export class DocSessionController {
 
 	repairInfo: RepairInfo | null = $state(null);
 	diagnosis: Diagnosis | null = $state(null);
+	refreshing = $state(false);
 
 	handoff: Handoff | null = null;
 
 	private loadSeq = 0;
 	private disposed = false;
+	private failedName: string | null = null;
 
 	constructor(private deps: DocSessionDeps) {}
 
@@ -129,7 +131,15 @@ export class DocSessionController {
 		await this.deps.applyDefaultView(null);
 		await behaviorPrefs.init();
 		const repair = behaviorPrefs.autoRepairOnOpen;
-		if (!(await this.load(() => ipc.docOpen(source, { repair })))) return false;
+		if (!(await this.load(() => ipc.docOpen(source, { repair })))) {
+			this.failedName =
+				source.kind === 'file'
+					? basename(source.path)
+					: source.kind === 'text'
+						? source.name
+						: 'stdin';
+			return false;
+		}
 		if (source.kind === 'file') addRecent(source.path, undefined, this.summary?.sourceSize);
 		await this.deps.applyDefaultView(this.summary);
 		return true;
@@ -137,7 +147,7 @@ export class DocSessionController {
 
 	applyDiagnosisFix = async (text: string): Promise<boolean> => {
 		this.diagnosis = null;
-		return this.loadFromSource({ kind: 'text', text, name: this.sourceName ?? 'pasted.json' });
+		return this.loadFromSource({ kind: 'text', text, name: this.failedName ?? 'pasted.json' });
 	};
 
 	reset = async () => {
@@ -177,11 +187,14 @@ export class DocSessionController {
 	};
 
 	private afterMutation = async (result: ApplyResult) => {
-		await this.refreshSummary();
-		await this.deps.tree.refetchAfterOp(result.affectedPaths);
-		if (this.deps.find.open && this.deps.find.query.trim()) {
-			this.deps.find.refreshAfterEdit();
+		this.refreshing = true;
+		try {
+			await this.refreshSummary();
+			await this.deps.tree.refetchAfterOp(result.affectedPaths);
+		} finally {
+			this.refreshing = false;
 		}
+		this.deps.find.refreshAfterEdit();
 	};
 
 	private mutate = async (

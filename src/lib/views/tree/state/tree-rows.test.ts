@@ -37,18 +37,27 @@ function shape(tree: TreeRowsController) {
 	return tree.rows.map((r) => (r.variant === 'content' ? r.path.join('.') : r.variant));
 }
 
-describe('refetchAfterOp', () => {
-	beforeEach(() => {
-		vi.stubGlobal('requestAnimationFrame', (cb: () => void) => cb());
-		vi.mocked(ipc.docGetSlice).mockImplementation(async (_h, path, start, end) => {
-			const v = path.reduce((node, seg) => (node as Record<string | number, unknown>)[seg], doc);
-			const entries = Array.isArray(v)
-				? v.map((x, i) => [i, x] as const)
-				: Object.entries(v as object);
-			return entries.slice(start, end).map(([k, x]) => view(k, x));
-		});
+beforeEach(() => {
+	vi.stubGlobal('requestAnimationFrame', (cb: () => void) => cb());
+	vi.mocked(ipc.docGetSlice).mockImplementation(async (_h, path, start, end) => {
+		const v = path.reduce((node, seg) => (node as Record<string | number, unknown>)[seg], doc);
+		const entries = Array.isArray(v)
+			? v.map((x, i) => [i, x] as const)
+			: Object.entries(v as object);
+		return entries.slice(start, end).map(([k, x]) => view(k, x));
 	});
+});
 
+describe('toggleAt', () => {
+	it('keeps the exact count of a short container the backend could not count', async () => {
+		const tree = setup([1, 2, 3]);
+		tree.setRows([rootRow('array', null)]);
+		await tree.toggleAt(0);
+		expect(rowAt(tree, [])).toMatchObject({ expanded: true, childCount: 3 });
+	});
+});
+
+describe('refetchAfterOp', () => {
 	it('refreshes an edited array item beyond the first chunk', async () => {
 		const list: unknown[] = Array.from({ length: 300 }, (_, i) => i);
 		const tree = setup(list);

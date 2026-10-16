@@ -3,7 +3,9 @@
 	import { ipc } from '$lib/ipc/client';
 	import { describeError } from '$lib/ipc/error-copy';
 	import type { DocHandle, NodeView, Path } from '$lib/ipc/bindings';
+	import { untrack } from 'svelte';
 	import { pathToString } from '$lib/util/path';
+	import { pathKey } from '$lib/views/tree/logic/model';
 	import { WindowedScroller } from '$lib/views/shared/windowed-scroller.svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { ChevronDown, ChevronRight } from '@lucide/svelte';
@@ -63,6 +65,24 @@
 		return views.map((v) => nodeFromView(v, path, depth));
 	}
 
+	function expandedKeys(nodes: ONode[]): string[] {
+		return nodes.flatMap((n) =>
+			n.expanded && n.children ? [pathKey(n.path), ...expandedKeys(n.children)] : [],
+		);
+	}
+
+	async function reopen(nodes: ONode[], open: Set<string>) {
+		const reopened = nodes.filter((n) => open.has(pathKey(n.path)) && expandable(n));
+		await Promise.all(
+			reopened.map(async (n) => {
+				n.children = await fetchRange(n.path, n.depth + 1, 0);
+				n.more = n.children.length === PER_LEVEL;
+				n.expanded = true;
+				await reopen(n.children, open);
+			}),
+		);
+	}
+
 	$effect(() => {
 		const ctx = context;
 		if (!ctx) {
@@ -73,12 +93,14 @@
 			return;
 		}
 		if (loadedHandle === ctx.handle && loadedVersion === ctx.version) return;
+		const open = new Set(loadedHandle === ctx.handle ? untrack(() => expandedKeys(roots)) : []);
 		loadedHandle = ctx.handle;
 		loadedVersion = ctx.version;
 		loading = true;
 		error = null;
 		void fetchRange([], 1, 0)
-			.then((children) => {
+			.then(async (children) => {
+				await reopen(children, open);
 				if (loadedHandle === ctx.handle && loadedVersion === ctx.version) {
 					roots = children;
 					rootsMore = children.length === PER_LEVEL;
@@ -181,7 +203,7 @@
 	const startIndex = $derived(s.window.start);
 	const endIndex = $derived(s.window.end);
 	const visibleRows = $derived(rows.slice(startIndex, endIndex));
-	const totalHeight = $derived(s.totalHeight);
+	const contentHeight = $derived(s.contentHeight);
 </script>
 
 <div class="panel">
@@ -199,14 +221,14 @@
 			<span class="section-count">{roots.length}{rootsMore ? '+' : ''}</span>
 		</div>
 		<div class="scroller" use:s.attach>
-			<div class="spacer" style="height: {totalHeight}px;">
+			<div class="spacer" style="height: {contentHeight}px;">
 				{#each visibleRows as r, i (rowKey(r))}
 					{@const idx = startIndex + i}
 					{#if r.type === 'node'}
 						{@const n = r.node}
 						<button
 							class="list-row row"
-							style="top: {s.offsetAt(idx)}px; height: {ROW_H}px; padding-left: {0.4 +
+							style="top: {s.offsetAt(idx) - s.shift}px; height: {ROW_H}px; padding-left: {0.4 +
 								n.depth * 0.7}rem;"
 							onclick={() => toggle(n)}
 							ondblclick={() => onNavigate?.(n.path)}
@@ -228,7 +250,7 @@
 					{:else}
 						<button
 							class="list-row row more"
-							style="top: {s.offsetAt(idx)}px; height: {ROW_H}px; padding-left: {0.4 +
+							style="top: {s.offsetAt(idx) - s.shift}px; height: {ROW_H}px; padding-left: {0.4 +
 								r.depth * 0.7}rem;"
 							onclick={() => loadMore(r.parent, r.loaded)}
 							title="Load the next {PER_LEVEL}"

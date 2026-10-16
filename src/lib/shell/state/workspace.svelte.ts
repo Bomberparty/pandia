@@ -173,22 +173,24 @@ export class Workspace {
 		return true;
 	}
 
-	async restore(): Promise<void> {
+	async restore(launch: Promise<void>): Promise<void> {
 		if (this.restored) return;
 		this.restored = true;
 		await behaviorPrefs.init();
 		if (!behaviorPrefs.restoreTabsOnLaunch) return;
-		const { paths, activeIndex } = await loadOpenTabs();
+		const [{ paths, activeIndex }] = await Promise.all([loadOpenTabs(), launch]);
 		const launched =
 			Object.values(this.views).some((v) => v.context) ||
 			Object.values(this.pendingOpens).some(Boolean);
 		if (paths.length === 0 || launched) return;
+		const tabIds: (string | undefined)[] = [];
 		for (const [i, path] of paths.entries()) {
 			const outcome = await this.open({ kind: 'file', path }, { focus: i === 0 });
 			if (outcome.kind === 'full') break;
+			tabIds.push(outcome.kind === 'opened' ? outcome.tabId : undefined);
 		}
-		const active = this.tabs[activeIndex];
-		if (activeIndex > 0 && active) this.activeId = active.id;
+		const active = tabIds[activeIndex];
+		if (active) this.activeId = active;
 	}
 
 	async snapshot(): Promise<void> {

@@ -173,5 +173,7 @@ function middleCut(s: string, width: number): string {
 }
 
 export function stem(path: string): string {
-	return basename(path).replace(/\.[^.]+$/, '');
+	const name = basename(path);
+	const dot = name.lastIndexOf('.');
+	return dot > 0 ? name.slice(0, dot) : name;
 }

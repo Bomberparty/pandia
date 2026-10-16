@@ -61,7 +61,7 @@
 	const startIndex = $derived(s.window.start);
 	const endIndex = $derived(s.window.end);
 	const visibleRows = $derived(rows.slice(startIndex, endIndex));
-	const totalHeight = $derived(s.totalHeight);
+	const contentHeight = $derived(s.contentHeight);
 
 	let maxTextLen = $state(0);
 
@@ -180,7 +180,7 @@
 	<div class="inline-scroller" use:s.attach>
 		<div
 			class="spacer"
-			style="height: {totalHeight}px; width: max(100%, calc({maxTextLen + 14}ch));"
+			style="height: {contentHeight}px; width: max(100%, calc({maxTextLen + 14}ch));"
 		>
 			{#each visibleRows as row, j (startIndex + j)}
 				{@const i = startIndex + j}
@@ -188,7 +188,7 @@
 					<button
 						class="row gap"
 						data-row={i}
-						style="top: {s.offsetAt(i)}px; height: {ROW_H}px;"
+						style="top: {s.offsetAt(i) - s.shift}px; height: {ROW_H}px;"
 						onclick={() => expandGap(i)}
 						title="Click to expand"
 					>
@@ -203,7 +203,7 @@
 						class="row"
 						data-kind={row.type}
 						data-row={i}
-						style="top: {s.offsetAt(i)}px; height: {ROW_H}px;"
+						style="top: {s.offsetAt(i) - s.shift}px; height: {ROW_H}px;"
 					>
 						<span class="ln">{row.leftNo ?? ''}</span>
 						<span class="ln">{row.rightNo ?? ''}</span>

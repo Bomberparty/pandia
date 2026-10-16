@@ -326,10 +326,6 @@
 		return () => clearTimeout(t);
 	});
 
-	$effect(() => {
-		void workspace.restore();
-	});
-
 	async function drainPendingFiles() {
 		let pending: PendingFile[] = [];
 		try {
@@ -361,7 +357,7 @@
 			if (cancelled) fn();
 			else unlisten = fn;
 		});
-		void drainPendingFiles();
+		void workspace.restore(drainPendingFiles());
 		return () => {
 			cancelled = true;
 			unlisten?.();

@@ -12,6 +12,7 @@ const STDIN_PREFIX: &str = "pandia-stdin-";
 const WAIT_PREFIX: &str = "pandia-wait-";
 const REPLY_PREFIX: &str = "pandia-reply-";
 const READY_PREFIX: &str = "pandia-ready-";
+const INSTANCE_PREFIX: &str = "pandia-instance-";
 const STDIN_FILE_FLAG: &str = "--stdin-file";
 const WAIT_ID_FLAG: &str = "--wait-id";
 const REPLY_FILE_FLAG: &str = "--reply-file";
@@ -31,6 +32,7 @@ Options:
   --wait               return after you close the opened tabs
   --json               with --wait, print a JSON report of what happened
   -h, --help           show this help
+  --                   treat every name after it as a file, like: pandia -- -data.json
 
 Exit codes with --wait:
   0  the tabs closed and the Schema panel showed no errors
@@ -122,6 +124,14 @@ fn parse(args: impl IntoIterator<Item = String>) -> Request {
         };
         match flag {
             "-" => req.stdin = true,
+            "--" => {
+                for arg in args.by_ref() {
+                    match arg.as_str() {
+                        "-" => req.stdin = true,
+                        _ => req.files.push(arg),
+                    }
+                }
+            }
             "-h" | "--help" => req.help = true,
             "--wait" => req.wait = true,
             "--json" => req.json = true,
@@ -298,7 +308,7 @@ fn finish_wait(marker: Option<std::fs::File>, files: Vec<TabReport>) {
     }
 }
 
-pub(crate) fn launch(args: Vec<String>) -> i32 {
+pub(crate) fn launch(args: Vec<String>, identifier: &str) -> i32 {
     let req = parse(args.iter().cloned());
     if req.help {
         print!("{USAGE}");
@@ -308,7 +318,7 @@ pub(crate) fn launch(args: Vec<String>) -> i32 {
         eprintln!("pandia: {problem}");
         return 2;
     }
-    match hand_off(&req, args) {
+    match hand_off(&req, args, identifier) {
         Ok((code, out)) => {
             print!("{out}");
             code
@@ -320,45 +330,52 @@ pub(crate) fn launch(args: Vec<String>) -> i32 {
     }
 }
 
-fn hand_off(req: &Request, args: Vec<String>) -> Result<(i32, String), String> {
+fn hand_off(req: &Request, args: Vec<String>, identifier: &str) -> Result<(i32, String), String> {
     let opens_something = !req.files.is_empty() || req.diff.is_some() || req.stdin;
     if req.wait && !opens_something {
         return Err("--wait needs a file to open, like: pandia --wait config.json".into());
     }
-    let mut app_args: Vec<String> = args.into_iter().filter(|a| a != "-").collect();
+    let mut handoff = Vec::new();
     let mut temp = TempFiles(Vec::new());
     if req.stdin {
         let saved = save_stdin()?;
-        app_args.push(format!("{STDIN_FILE_FLAG}={}", saved.display()));
+        handoff.push(format!("{STDIN_FILE_FLAG}={}", saved.display()));
         temp.0.push(saved);
     }
     let reply = if req.stdin && req.wait {
         let path = temp.create(REPLY_PREFIX, ".json")?;
-        app_args.push(format!("{REPLY_FILE_FLAG}={}", path.display()));
+        handoff.push(format!("{REPLY_FILE_FLAG}={}", path.display()));
         Some(path)
     } else {
         None
     };
     let marker = if req.wait {
         let path = temp.create(WAIT_PREFIX, "")?;
-        app_args.push(format!("{WAIT_ID_FLAG}={}", path.display()));
+        handoff.push(format!("{WAIT_ID_FLAG}={}", path.display()));
         Some(path)
     } else {
         None
     };
-    let mut app = spawn_app(&app_args)?;
+    let mut app = spawn_app(&app_args(handoff, args))?;
     let Some(marker) = marker else {
         temp.0.clear();
         return Ok((0, String::new()));
     };
 
     remove_on_ctrl_c(reply.iter().chain([&marker]).cloned().collect());
-    let Some(report) = wait_for(&marker, &mut app) else {
+    let Some(report) = wait_for(&marker, &mut app, &instance_path(identifier)) else {
         eprintln!("pandia: Pandia quit before the file was closed.");
         return Ok((1, String::new()));
     };
     let reply_text = reply.map(|path| std::fs::read_to_string(path).unwrap_or_default());
     Ok(finish(report, reply_text, req.json))
+}
+
+fn app_args(handoff: Vec<String>, args: Vec<String>) -> Vec<String> {
+    handoff
+        .into_iter()
+        .chain(args.into_iter().filter(|a| a != "-"))
+        .collect()
 }
 
 struct TempFiles(Vec<PathBuf>);
@@ -405,10 +422,12 @@ fn remove_on_ctrl_c(files: Vec<PathBuf>) {
 fn finish(mut report: WaitReport, reply: Option<String>, json: bool) -> (i32, String) {
     let reply = reply.map(|text| (!text.trim().is_empty()).then_some(text));
     let unsent = matches!(reply, Some(None));
+    let mut opened = true;
     if let Some(stdin_tab) = report.files.iter_mut().find(|f| f.path.is_none()) {
         stdin_tab.saved = !unsent;
+        opened = stdin_tab.opened;
     }
-    let code = if unsent {
+    let code = if unsent && opened {
         report.exit_code.max(3)
     } else {
         report.exit_code
@@ -514,8 +533,8 @@ fn spawn_app(args: &[String]) -> Result<Child, String> {
     let mut cmd = Command::new(app_executable().ok_or_else(failed)?);
     let ready = handoff_path(READY_PREFIX, "");
     let _ = create_private(&ready);
-    cmd.args(args)
-        .arg(format!("{READY_FILE_FLAG}={}", ready.display()))
+    cmd.arg(format!("{READY_FILE_FLAG}={}", ready.display()))
+        .args(args)
         .env(LAUNCHED_ENV, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -552,7 +571,40 @@ fn is_held(marker: &Path) -> bool {
         .is_ok_and(|file| matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)))
 }
 
-fn wait_for(marker: &Path, app: &mut Child) -> Option<WaitReport> {
+fn instance_path(identifier: &str) -> PathBuf {
+    #[cfg(unix)]
+    let dir = PathBuf::from("/tmp");
+    #[cfg(not(unix))]
+    let dir = std::env::temp_dir();
+    dir.join(format!("{INSTANCE_PREFIX}{identifier}"))
+}
+
+fn lock_instance(path: &Path) -> Option<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path).ok()?;
+    file.lock_shared().ok()?;
+    Some(file)
+}
+
+static INSTANCE: std::sync::OnceLock<std::fs::File> = std::sync::OnceLock::new();
+
+pub(crate) fn hold_instance(identifier: &str) {
+    if let Some(file) = lock_instance(&instance_path(identifier)) {
+        let _ = INSTANCE.set(file);
+    }
+}
+
+fn instance_gone(instance: &Path) -> bool {
+    std::fs::File::open(instance).is_ok_and(|file| file.try_lock().is_ok())
+}
+
+fn wait_for(marker: &Path, app: &mut Child, instance: &Path) -> Option<WaitReport> {
     let mut taken_over = false;
     loop {
         std::thread::sleep(Duration::from_millis(250));
@@ -565,7 +617,7 @@ fn wait_for(marker: &Path, app: &mut Child) -> Option<WaitReport> {
             Ok(Some(status)) if status.success() => {
                 if is_held(marker) {
                     taken_over = true;
-                } else if taken_over {
+                } else if taken_over || instance_gone(instance) {
                     return read_report(marker);
                 }
             }
@@ -669,11 +721,20 @@ mod tests {
 
     fn wait_in_background(
         marker: PathBuf,
+        app: std::process::Child,
+    ) -> std::sync::mpsc::Receiver<Option<WaitReport>> {
+        let instance = marker.with_file_name("pandia-instance-none");
+        wait_with_instance(marker, app, instance)
+    }
+
+    fn wait_with_instance(
+        marker: PathBuf,
         mut app: std::process::Child,
+        instance: PathBuf,
     ) -> std::sync::mpsc::Receiver<Option<WaitReport>> {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(wait_for(&marker, &mut app));
+            let _ = tx.send(wait_for(&marker, &mut app, &instance));
         });
         rx
     }
@@ -706,6 +767,32 @@ mod tests {
         assert!(
             rx.recv_timeout(Duration::from_millis(800)).is_err(),
             "keeps waiting while the open Pandia has the files"
+        );
+        drop(running_app);
+        let got = rx.recv_timeout(Duration::from_secs(2));
+        assert_eq!(
+            got,
+            Ok(None),
+            "wait_for kept waiting after the open Pandia quit"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn wait_ends_when_the_open_pandia_quits_before_taking_the_files() {
+        let dir = std::env::temp_dir().join(format!("pandia-cli-gap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("pandia-wait-gap");
+        create_private(&marker).unwrap();
+        let instance = dir.join("pandia-instance-gap");
+        let running_app = lock_instance(&instance).unwrap();
+        let handed_off = Command::new("true").spawn().unwrap();
+
+        let rx = wait_with_instance(marker, handed_off, instance);
+        assert!(
+            rx.recv_timeout(Duration::from_millis(800)).is_err(),
+            "keeps waiting while the open Pandia is busy"
         );
         drop(running_app);
         let got = rx.recv_timeout(Duration::from_secs(2));
@@ -933,6 +1020,47 @@ mod tests {
         };
         let (code, out) = finish(done, Some(String::new()), false);
         assert_eq!((code, out.as_str()), (3, ""));
+    }
+
+    #[test]
+    fn piped_input_that_did_not_open_exits_1() {
+        let stdin_tab = TabReport {
+            path: None,
+            opened: false,
+            problem: Some("This isn't valid JSON.".into()),
+            ..report("")
+        };
+        let done = WaitReport {
+            exit_code: 1,
+            files: vec![stdin_tab],
+        };
+        assert_eq!(finish(done, Some(String::new()), false), (1, String::new()));
+        assert_eq!(
+            finish(WaitReport::default(), Some(String::new()), false).0,
+            3,
+            "Pandia quit with the piped tab still open"
+        );
+    }
+
+    #[test]
+    fn files_after_a_double_dash_open_even_when_they_look_like_options() {
+        assert_eq!(
+            pending(&["--", "-report.json", "--wait"]),
+            vec![
+                PendingFile::file("/work/-report.json".into()),
+                PendingFile::file("/work/--wait".into()),
+            ]
+        );
+        assert!(parse(args(&["--", "-"])).stdin, "- still means piped input");
+
+        let launched = app_args(
+            vec!["--wait-id=/tmp/pandia-wait-1".into()],
+            args(&["--wait", "--", "-x.json"]),
+        );
+        let got = pending_from(launched, Path::new("/work"), &Handoffs::default());
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].path, "/work/-x.json");
+        assert_eq!(got[0].wait.as_deref(), Some("/tmp/pandia-wait-1"));
     }
 
     #[test]

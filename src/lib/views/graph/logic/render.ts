@@ -195,6 +195,7 @@ function paintCard(
 			const y = card.y + HEADER_H + i * ROW_H;
 			ctx.fillRect(card.x + ROW_PAD_X, y, card.w - ROW_PAD_X * 2, 0.5 / scale);
 		}
+		if (highlighted) paintHighlightRing(ctx, card, scale, theme);
 		return;
 	}
 
@@ -412,5 +413,6 @@ export function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
 		if (ctx.measureText(text.slice(0, mid)).width + ellWidth <= maxWidth) lo = mid;
 		else hi = mid - 1;
 	}
+	if (/[\ud800-\udbff]/.test(text.charAt(lo - 1))) lo--; // don't split a surrogate pair
 	return text.slice(0, lo) + ell;
 }

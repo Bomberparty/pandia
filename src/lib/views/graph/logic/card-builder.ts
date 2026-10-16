@@ -18,14 +18,21 @@ export { NHUES, collapseTree, containerPreview, hueOf, scalarText, toRow } from 
 
 export async function buildCard(handle: DocHandle, path: Path, kind: NodeKind): Promise<GraphCard> {
 	const slice = await ipc.docGetSlice(handle, path, 0, RENDER_CHILD_CAP);
-	return {
-		id: pathId(path),
-		path,
-		title: cardTitle(path),
-		kind,
-		rows: slice.map((v) => toRow(path, v)),
-		hue: hueOf(path),
-	};
+	const rows = slice.map((v) => toRow(path, v));
+	const total = slice.length < RENDER_CHILD_CAP ? 0 : await ipc.docChildCount(handle, path);
+	if (total && total > slice.length) {
+		rows.push({
+			key: '…',
+			value: `${(total - slice.length).toLocaleString()} more`,
+			valueKind: 'null',
+			colorHex: null,
+			container: false,
+			expandable: false,
+			childPath: [...path, slice.length],
+			children: [],
+		});
+	}
+	return { id: pathId(path), path, title: cardTitle(path), kind, rows, hue: hueOf(path) };
 }
 
 export async function expandRow(
@@ -73,8 +80,6 @@ export async function reopenRows(
 ): Promise<void> {
 	const rows = card.rows.filter((r) => open.has(pathId(r.childPath)));
 	await Promise.all(rows.map((r) => expandRow(handle, r, open.get(pathId(r.childPath))?.cards)));
-	// An array that gained or lost items may have shifted them, so paths below it can name a
-	// different item now; those stay closed.
 	const steady = rows.filter((r) => itemCount(r) === open.get(pathId(r.childPath))?.length);
 	await Promise.all(steady.flatMap((r) => r.children.map((ch) => reopenRows(handle, ch, open))));
 }

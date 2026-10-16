@@ -58,10 +58,18 @@
 	}
 
 	let syncScroll = $state(true);
+	let centering = $state(false);
 	const sync = createSyncScrollPair({ enabled: true });
 	$effect(() => {
-		sync.setEnabled(syncScroll);
+		sync.setEnabled(syncScroll && !centering);
 	});
+
+	function bindPane(side: 'left' | 'right', el: HTMLElement) {
+		sync.bind(side, el);
+		for (const type of ['wheel', 'pointerdown', 'keydown', 'touchstart']) {
+			el.addEventListener(type, () => (centering = false), { passive: true });
+		}
+	}
 
 	$effect(() => {
 		return () => {
@@ -185,6 +193,10 @@
 	const activePath = $derived<Path | null>(
 		activeIndex >= 0 && activeIndex < entries.length ? (entries[activeIndex]?.path ?? null) : null,
 	);
+	$effect(() => {
+		void activePath;
+		centering = true;
+	});
 
 	let chPx = $state(0);
 	let headW = $state(0);
@@ -317,7 +329,7 @@
 						version={leftVersion}
 						diff={leftDiff}
 						activePath={activeEntry ? leftPathOf(activeEntry) : null}
-						onScrollerReady={(el) => sync.bind('left', el)}
+						onScrollerReady={(el) => bindPane('left', el)}
 					/>
 				</div>
 				<div class="divider"></div>
@@ -333,7 +345,7 @@
 						version={rightVersion}
 						diff={rightDiff}
 						{activePath}
-						onScrollerReady={(el) => sync.bind('right', el)}
+						onScrollerReady={(el) => bindPane('right', el)}
 					/>
 				</div>
 			</div>
@@ -352,7 +364,7 @@
 						sourceSize={leftSourceSize}
 						highlights={leftHighlights}
 						activePath={activeEntry ? leftPathOf(activeEntry) : null}
-						onScrollerReady={(el) => sync.bind('left', el)}
+						onScrollerReady={(el) => bindPane('left', el)}
 					/>
 				</div>
 				<div class="divider"></div>
@@ -369,7 +381,7 @@
 						sourceSize={rightSourceSize}
 						highlights={rightHighlights}
 						{activePath}
-						onScrollerReady={(el) => sync.bind('right', el)}
+						onScrollerReady={(el) => bindPane('right', el)}
 					/>
 				</div>
 			</div>

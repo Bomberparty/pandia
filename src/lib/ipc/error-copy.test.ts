@@ -89,6 +89,18 @@ describe('describeError — backend kinds', () => {
 		).toBe('Export failed: unsupported value.');
 	});
 
+	it('names the address a schema refers to instead of the library text', () => {
+		expect(
+			describeError(
+				new IpcError('schemaExternalRef', 'schema refers to https://example.com/s.json', {
+					detail: 'https://example.com/s.json',
+				}),
+			),
+		).toBe(
+			'This schema points to another schema at https://example.com/s.json, which Pandia doesn\'t load. Copy the definitions you need into this schema under "$defs", and point the "$ref" there.',
+		);
+	});
+
 	const fileError = (problem: IoProblem, op: FileOp | null, detail = 'raw system text') =>
 		describeError(
 			new IpcError('io', `io error: ${detail}`, {

@@ -66,11 +66,26 @@ fn temp_sibling(target: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
-    fn dir(name: &str) -> PathBuf {
+    struct TempDir(PathBuf);
+
+    impl std::ops::Deref for TempDir {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn dir(name: &str) -> TempDir {
         let d = std::env::temp_dir().join(format!("pandia-atomic-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
-        d
+        TempDir(d)
     }
 
     fn entries(d: &Path) -> Vec<String> {

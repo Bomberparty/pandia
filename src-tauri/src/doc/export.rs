@@ -27,6 +27,16 @@ pub enum ExportError {
     Serialize(String),
     #[error("CSV export needs an array of objects ({0})")]
     CsvShape(String),
+    #[error(transparent)]
+    Io(io::Error),
+}
+
+fn json_error(e: serde_json::Error) -> ExportError {
+    if e.is_io() {
+        ExportError::Io(e.into())
+    } else {
+        ExportError::Serialize(e.to_string())
+    }
 }
 
 pub fn export(value: &Value, format: ExportFormat) -> Result<String, ExportError> {
@@ -57,7 +67,7 @@ pub fn write_json_value<W: Write>(
     } else {
         serde_json::to_writer(writer, value)
     };
-    r.map_err(|e| ExportError::Serialize(e.to_string()))
+    r.map_err(json_error)
 }
 
 pub fn write_json_source<W: Write>(
@@ -68,14 +78,45 @@ pub fn write_json_source<W: Write>(
     let mut de = serde_json::Deserializer::from_str(source);
 
     de.disable_recursion_limit();
+    let mut writer = KeepWriteError {
+        inner: writer,
+        error: None,
+    };
     let r = if pretty {
-        let mut ser = serde_json::Serializer::pretty(writer);
+        let mut ser = serde_json::Serializer::pretty(&mut writer);
         serde_transcode::transcode(&mut de, &mut ser).map(|_| ())
     } else {
-        let mut ser = serde_json::Serializer::new(writer);
+        let mut ser = serde_json::Serializer::new(&mut writer);
         serde_transcode::transcode(&mut de, &mut ser).map(|_| ())
     };
-    r.map_err(|e| ExportError::Serialize(e.to_string()))
+    r.map_err(|e| writer.error.map_or_else(|| json_error(e), ExportError::Io))
+}
+
+// serde_transcode turns a write error into plain text, so the writer keeps the original.
+struct KeepWriteError<W> {
+    inner: W,
+    error: Option<io::Error>,
+}
+
+impl<W> KeepWriteError<W> {
+    fn keep<T>(&mut self, r: io::Result<T>) -> io::Result<T> {
+        r.map_err(|e| {
+            let kind = e.kind();
+            self.error = Some(e);
+            kind.into()
+        })
+    }
+}
+
+impl<W: Write> Write for KeepWriteError<W> {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        let r = self.inner.write(data);
+        self.keep(r)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        let r = self.inner.flush();
+        self.keep(r)
+    }
 }
 
 struct CappedWriter {
@@ -185,6 +226,8 @@ fn to_csv(value: &Value) -> Result<String, ExportError> {
 fn cell_to_string(v: &Value) -> String {
     match v {
         Value::Null => String::new(),
+        // Spreadsheets run text that starts like this as a formula (OWASP CSV injection).
+        Value::String(s) if s.starts_with(['=', '+', '-', '@', '\t', '\r']) => format!("'{s}"),
         Value::String(s) => s.clone(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
@@ -415,6 +458,55 @@ mod tests {
         assert_eq!(lines[0], "a,b");
         assert_eq!(lines[1], "1,");
         assert_eq!(lines[2], ",2");
+    }
+
+    #[test]
+    fn csv_text_a_spreadsheet_would_run_as_a_formula_gets_a_leading_quote() {
+        let v = json!([
+            {"v": "=SUM(A1:A2)"}, {"v": "+1"}, {"v": "-1"}, {"v": "@cmd"},
+            {"v": "\tx"}, {"v": "\rx"}, {"v": "a=b"}, {"v": -5}, {"v": 2.5}
+        ]);
+        let out = export(&v, ExportFormat::Csv).unwrap();
+        let cells: Vec<String> = csv::Reader::from_reader(out.as_bytes())
+            .records()
+            .map(|r| r.unwrap()[0].to_string())
+            .collect();
+        assert_eq!(
+            cells,
+            [
+                "'=SUM(A1:A2)",
+                "'+1",
+                "'-1",
+                "'@cmd",
+                "'\tx",
+                "'\rx",
+                "a=b",
+                "-5",
+                "2.5"
+            ]
+        );
+    }
+
+    #[test]
+    fn json_write_failures_keep_the_io_error() {
+        struct DiskFull;
+        impl Write for DiskFull {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::StorageFull.into())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        for err in [
+            write_json_value(&json!({"a": 1}), true, DiskFull).unwrap_err(),
+            write_json_source(r#"{"a":1}"#, false, DiskFull).unwrap_err(),
+        ] {
+            assert!(
+                matches!(&err, ExportError::Io(e) if e.kind() == io::ErrorKind::StorageFull),
+                "{err:?}"
+            );
+        }
     }
 
     #[test]
