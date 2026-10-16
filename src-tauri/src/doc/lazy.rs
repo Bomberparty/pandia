@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use serde_json::Value;
 use sonic_rs::{FastStr, JsonType, JsonValueTrait, LazyValue, PointerNode};
@@ -17,11 +18,14 @@ use super::types::{quote_preview, DocError, DocResult, NodeKind, NodeView, Path,
 
 const COUNT_BUDGET_BYTES: usize = 64 * 1024;
 
+type ElementSpans = Arc<Vec<(u32, u32)>>;
+
 #[derive(Debug)]
 pub struct LazyDoc {
     source: FastStr,
     root_kind: NodeKind,
-    root_index: Option<Vec<(u32, u32)>>,
+    root_index: Option<ElementSpans>,
+    nested_index: parking_lot::Mutex<HashMap<Path, ElementSpans>>,
 }
 
 impl LazyDoc {
@@ -44,7 +48,7 @@ impl LazyDoc {
         };
 
         let root_index = if root_kind == NodeKind::Array {
-            Some(build_root_index(&source)?)
+            Some(Arc::new(build_array_index(source.as_bytes(), 0)?))
         } else {
             None
         };
@@ -53,6 +57,7 @@ impl LazyDoc {
             source,
             root_kind,
             root_index,
+            nested_index: parking_lot::Mutex::new(HashMap::new()),
         })
     }
 
@@ -65,7 +70,7 @@ impl LazyDoc {
     }
 
     pub fn root_element_spans(&self) -> Option<&[(u32, u32)]> {
-        self.root_index.as_deref()
+        self.root_index.as_deref().map(Vec::as_slice)
     }
 
     pub fn root_child_count(&self) -> Option<u32> {
@@ -95,6 +100,9 @@ impl LazyDoc {
     }
 
     pub fn kind_at(&self, path: &Path) -> DocResult<(NodeKind, Option<u32>)> {
+        if let Some(spans) = self.array_spans(path)? {
+            return Ok((NodeKind::Array, Some(spans.len() as u32)));
+        }
         let lv = self.lookup(path)?;
         let kind = json_type_to_node_kind(lv.get_type());
         let count = count_uncapped(&lv, kind);
@@ -114,15 +122,13 @@ impl LazyDoc {
     }
 
     pub fn get_value(&self, path: &Path) -> DocResult<Value> {
-        if path.0.len() == 1 {
-            if let Some(idx) = &self.root_index {
-                if let PathSegment::Index(i) = path.0[0] {
-                    let (begin, fin) = *idx
-                        .get(i as usize)
-                        .ok_or_else(|| DocError::InvalidPath(path.clone()))?;
-                    let bytes = &self.source.as_str()[begin as usize..fin as usize];
-                    return parse_json(bytes);
-                }
+        if let Some((PathSegment::Index(i), parent)) = path.0.split_last() {
+            if let Ok(Some(spans)) = self.array_spans(&Path(parent.to_vec())) {
+                let (begin, fin) = *spans
+                    .get(*i as usize)
+                    .ok_or_else(|| DocError::InvalidPath(path.clone()))?;
+                let bytes = &self.source.as_str()[begin as usize..fin as usize];
+                return parse_json(bytes);
             }
         }
 
@@ -142,30 +148,14 @@ impl LazyDoc {
             }
         };
 
-        if path.is_root() {
-            let Some(idx) = &self.root_index else {
-                return Ok(Vec::new()); // root isn't an array
-            };
-            let src = self.source.as_str();
-            return Ok(idx
-                .iter()
-                .map(|(b, e)| extract(&src[*b as usize..*e as usize]))
-                .collect());
-        }
-
-        let lv = self.lookup(path)?;
-        if lv.get_type() != JsonType::Array {
+        let Some(spans) = self.array_spans(path)? else {
             return Ok(Vec::new());
-        }
-        let iter = lv
-            .into_array_iter()
-            .expect("array type confirmed by get_type");
-        let mut out = Vec::new();
-        for entry in iter {
-            let el = entry.map_err(|e| DocError::Parse(e.to_string()))?;
-            out.push(extract(el.as_raw_str()));
-        }
-        Ok(out)
+        };
+        let src = self.source.as_str();
+        Ok(spans
+            .iter()
+            .map(|(b, e)| extract(&src[*b as usize..*e as usize]))
+            .collect())
     }
 
     pub fn array_field_text_lower(
@@ -188,30 +178,14 @@ impl LazyDoc {
             }
         };
 
-        if path.is_root() {
-            let Some(idx) = &self.root_index else {
-                return Ok(Vec::new());
-            };
-            let src = self.source.as_str();
-            return Ok(idx
-                .iter()
-                .map(|(b, e)| extract(&src[*b as usize..*e as usize]))
-                .collect());
-        }
-
-        let lv = self.lookup(path)?;
-        if lv.get_type() != JsonType::Array {
+        let Some(spans) = self.array_spans(path)? else {
             return Ok(Vec::new());
-        }
-        let iter = lv
-            .into_array_iter()
-            .expect("array type confirmed by get_type");
-        let mut out = Vec::new();
-        for entry in iter {
-            let el = entry.map_err(|e| DocError::Parse(e.to_string()))?;
-            out.push(extract(el.as_raw_str()));
-        }
-        Ok(out)
+        };
+        let src = self.source.as_str();
+        Ok(spans
+            .iter()
+            .map(|(b, e)| extract(&src[*b as usize..*e as usize]))
+            .collect())
     }
 
     pub fn search(&self, opts: &SearchOptions, cancel: &CancelFlag) -> Vec<SearchHit> {
@@ -243,6 +217,28 @@ impl LazyDoc {
         }
     }
 
+    // Element offsets of the array at `path`, so reading element i doesn't rescan the ones
+    // before it. A nested array is indexed on first use and kept: the source never changes.
+    fn array_spans(&self, path: &Path) -> DocResult<Option<ElementSpans>> {
+        if path.is_root() {
+            return Ok(self.root_index.clone());
+        }
+        if let Some(spans) = self.nested_index.lock().get(path) {
+            return Ok(Some(Arc::clone(spans)));
+        }
+        let lv = self.lookup(path)?;
+        if lv.get_type() != JsonType::Array {
+            return Ok(None);
+        }
+        // `lookup` returns a slice of the source, so its distance from the start is its offset.
+        let start = lv.as_raw_str().as_ptr() as usize - self.source.as_str().as_ptr() as usize;
+        let spans = Arc::new(build_array_index(self.source.as_bytes(), start)?);
+        self.nested_index
+            .lock()
+            .insert(path.clone(), Arc::clone(&spans));
+        Ok(Some(spans))
+    }
+
     fn lookup(&self, path: &Path) -> DocResult<LazyValue<'_>> {
         if let Some(idx) = &self.root_index {
             if let Some(PathSegment::Index(i)) = path.0.first() {
@@ -262,7 +258,7 @@ impl LazyDoc {
         }
 
         let pointer = sonic_pointer(&path.0);
-        unsafe { sonic_rs::get_from_faststr_unchecked(&self.source, &pointer) }
+        unsafe { sonic_rs::get_from_str_unchecked(self.source.as_str(), &pointer) }
             .map_err(|_| DocError::InvalidPath(path.clone()))
     }
 }
@@ -374,12 +370,11 @@ fn key_text(raw: &str) -> Cow<'_, str> {
     }
 }
 
-fn build_root_index(source: &FastStr) -> DocResult<Vec<(u32, u32)>> {
-    let bytes = source.as_str().as_bytes();
-    let mut i = skip_ws(bytes, 0);
+fn build_array_index(bytes: &[u8], start: usize) -> DocResult<Vec<(u32, u32)>> {
+    let mut i = skip_ws(bytes, start);
 
     if i >= bytes.len() || bytes[i] != b'[' {
-        return Err(DocError::Parse("expected array root".into()));
+        return Err(DocError::Parse("expected array".into()));
     }
     i += 1;
     i = skip_ws(bytes, i);
@@ -480,11 +475,11 @@ fn skip_balanced(bytes: &[u8], i: usize) -> DocResult<usize> {
     Err(DocError::Parse("unbalanced object/array".into()))
 }
 
-const MAX_DEPTH: u32 = 1000;
+pub(crate) const MAX_DEPTH: u32 = 1000;
 
 // Iterative, so text nested too deep for the recursive parsers is refused before
 // they see it. Returns the byte offsets, ascending, of objects that repeat a key.
-fn prescan(text: &str) -> DocResult<Vec<usize>> {
+pub(crate) fn prescan(text: &str) -> DocResult<Vec<usize>> {
     let bytes = text.as_bytes();
     // Per open object: its byte offset and where its keys start in `keys`; None for an array.
     let mut open: Vec<Option<(usize, usize)>> = Vec::new();

@@ -78,6 +78,20 @@ describe('matchShortcut — Ctrl shortcuts off macOS', () => {
 	});
 });
 
+describe('matchShortcut — keyboard layouts', () => {
+	it('matches letters by the key they type, so AZERTY Ctrl+Z undoes instead of closing the tab', () => {
+		expect(matchShortcut(key('KeyW', { key: 'z' }))).toBe('doc.undo');
+		expect(matchShortcut(key('KeyZ', { key: 'w' }))).toBe('tab.close');
+		expect(matchShortcut(key('KeyW', { key: 'Z', shiftKey: true }))).toBe('doc.redo');
+	});
+
+	it('keeps digits, punctuation and non-Latin letters on their physical keys', () => {
+		expect(matchShortcut(key('Digit1', { key: '&' }))).toBe('view.tree');
+		expect(matchShortcut(key('Comma', { key: ';' }))).toBe('nav.settings');
+		expect(matchShortcut(key('KeyZ', { key: 'я' }))).toBe('doc.undo');
+	});
+});
+
 describe('matchShortcut — in a text field', () => {
 	// jsdom has no isContentEditable.
 	Object.defineProperty(HTMLElement.prototype, 'isContentEditable', {

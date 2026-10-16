@@ -339,7 +339,6 @@ export type Summary = {
 	commentsStripped: boolean,
 };
 
-/**  What happened to one tab a `--wait` launch opened, reported when the tab closes. */
 export type TabReport = {
 	path: string | null,
 	opened: boolean,

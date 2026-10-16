@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ipc } from '$lib/ipc/client';
 import { kindOf } from '$lib/ipc/wire';
 import type { NodeView } from '$lib/ipc/bindings';
-import { expandRow, showMore, toRow } from './card-builder';
+import { buildCard, expandRow, openRows, reopenRows, showMore, toRow } from './card-builder';
 
 vi.mock('$lib/ipc/client', () => ({ ipc: { docGetSlice: vi.fn(), docChildCount: vi.fn() } }));
 
@@ -61,5 +61,39 @@ describe('expandRow — a long array of objects', () => {
 
 		expect(row.children).toHaveLength(25);
 		expect(row.children[24]?.title).toBe('… 9,976 more');
+	});
+});
+
+describe('reopenRows — rebuilding after an edit', () => {
+	const h = 'h' as never;
+	// Opens `users`, then the `pet` row of users[1].
+	async function openGraph() {
+		const root = await buildCard(h, [], 'object');
+		await expandRow(h, root.rows[0]!);
+		await expandRow(h, root.rows[0]!.children[1]!.rows[0]!);
+		return root;
+	}
+
+	async function rebuilt(before: Awaited<ReturnType<typeof openGraph>>) {
+		const after = await buildCard(h, [], 'object');
+		await reopenRows(h, after, openRows(before));
+		return after;
+	}
+
+	it('reopens everything when no array changed length', async () => {
+		doc = { users: [{ pet: { n: 'a' } }, { pet: { n: 'b' } }] };
+		const before = await openGraph();
+		doc = { users: [{ pet: { n: 'a' } }, { pet: { n: 'B' } }] };
+		const after = await rebuilt(before);
+		expect(after.rows[0]!.children[1]!.rows[0]!.children).toHaveLength(1);
+	});
+
+	it('leaves the items of an array that changed length closed, since they may have shifted', async () => {
+		doc = { users: [{ pet: { n: 'a' } }, { pet: { n: 'b' } }, { pet: { n: 'c' } }] };
+		const before = await openGraph();
+		doc = { users: [{ pet: { n: 'b' } }, { pet: { n: 'c' } }] };
+		const after = await rebuilt(before);
+		expect(after.rows[0]!.children).toHaveLength(2);
+		expect(after.rows[0]!.children[1]!.rows[0]!.children).toHaveLength(0);
 	});
 });

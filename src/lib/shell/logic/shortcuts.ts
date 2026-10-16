@@ -38,10 +38,14 @@ function isTextField(el: EventTarget | null): boolean {
 	);
 }
 
+function typedKeyCode(e: KeyboardEvent): string {
+	return /^[a-z]$/i.test(e.key) ? `Key${e.key.toUpperCase()}` : e.code;
+}
+
 export function matchShortcut(e: KeyboardEvent): string | null {
 	if (isMac) return null;
 	if (!e.ctrlKey || e.metaKey) return null;
-	const pressed = combo(e.altKey, e.shiftKey, e.code);
+	const pressed = combo(e.altKey, e.shiftKey, typedKeyCode(e));
 	if (TEXT_FIELD_COMBOS.has(pressed) && isTextField(e.target)) return null;
 	return COMMAND_BY_COMBO.get(pressed) ?? null;
 }

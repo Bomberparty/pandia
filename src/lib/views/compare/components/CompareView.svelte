@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import CodeView from '$lib/views/code/CodeView.svelte';
 	import InlineDiffView from './InlineDiffView.svelte';
 	import CompareTree from './CompareTree.svelte';
@@ -73,6 +74,8 @@
 		const r = rightHandle;
 		void leftVersion;
 		void rightVersion;
+		// A recompute after an edit stays on the entry you were looking at, if it's still there.
+		const kept = untrack(() => entries[activeIndex]?.path);
 		if (staleSource) {
 			loading = false;
 			error = null;
@@ -92,7 +95,8 @@
 			.then((es) => {
 				if (!cancelled) {
 					entries = es;
-					if (es.length > 0) activeIndex = 0;
+					const i = kept ? es.findIndex((e) => pathKey(e.path) === pathKey(kept)) : -1;
+					if (es.length > 0) activeIndex = Math.max(i, 0);
 				}
 			})
 			.catch((e) => {

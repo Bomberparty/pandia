@@ -28,7 +28,6 @@ export async function buildCard(handle: DocHandle, path: Path, kind: NodeKind): 
 	};
 }
 
-/** Adds at most `maxCards` cards; a longer array of containers ends in a "… N more" card. */
 export async function expandRow(
 	handle: DocHandle,
 	row: CardRow,
@@ -49,24 +48,35 @@ export async function expandRow(
 	}
 }
 
-/** How many cards each open row shows, keyed by the row's path. */
-export function openRows(card: GraphCard, out = new Map<PathKey, number>()): Map<PathKey, number> {
+export type OpenRows = Map<PathKey, { cards: number; length: number | null }>;
+
+function itemCount(row: CardRow): number | null {
+	const first = row.children[0];
+	if (!first || first.path.length === row.childPath.length) return null;
+	return row.children.at(-1)?.more?.total ?? row.children.length;
+}
+
+export function openRows(card: GraphCard, out: OpenRows = new Map()): OpenRows {
 	for (const r of card.rows) {
-		if (r.children.length > 0) out.set(pathId(r.childPath), r.children.length);
+		if (r.children.length > 0) {
+			out.set(pathId(r.childPath), { cards: r.children.length, length: itemCount(r) });
+		}
 		for (const ch of r.children) openRows(ch, out);
 	}
 	return out;
 }
 
-/** Opens the rows of a freshly built card that `openRows` recorded, to the same card count. */
 export async function reopenRows(
 	handle: DocHandle,
 	card: GraphCard,
-	open: Map<PathKey, number>,
+	open: OpenRows,
 ): Promise<void> {
 	const rows = card.rows.filter((r) => open.has(pathId(r.childPath)));
-	await Promise.all(rows.map((r) => expandRow(handle, r, open.get(pathId(r.childPath)))));
-	await Promise.all(rows.flatMap((r) => r.children.map((ch) => reopenRows(handle, ch, open))));
+	await Promise.all(rows.map((r) => expandRow(handle, r, open.get(pathId(r.childPath))?.cards)));
+	// An array that gained or lost items may have shifted them, so paths below it can name a
+	// different item now; those stay closed.
+	const steady = rows.filter((r) => itemCount(r) === open.get(pathId(r.childPath))?.length);
+	await Promise.all(steady.flatMap((r) => r.children.map((ch) => reopenRows(handle, ch, open))));
 }
 
 export async function showMore(handle: DocHandle, more: MoreItems): Promise<void> {

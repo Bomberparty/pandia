@@ -69,6 +69,30 @@ describe('CompareView — side-by-side', () => {
 		});
 	});
 
+	it('keeps the selected entry when the diff recomputes', async () => {
+		texts = { L: '["a","b","c"]', R: '["a","x","y"]' };
+		entries = [entry({ path: [1], kind: 'changed' }), entry({ path: [2], kind: 'changed' })];
+		const left = reactiveBox(1);
+		const { container } = render(CompareView, {
+			props: {
+				...props,
+				get leftVersion() {
+					return left.value;
+				},
+			},
+		});
+		const active = () => container.querySelector('.entry.active .path')?.textContent;
+		await vi.waitFor(() => expect(active()).toBe('$[1]'));
+		await fireEvent.click(container.querySelectorAll<HTMLElement>('.entry')[1]!);
+		expect(active()).toBe('$[2]');
+
+		entries = [entry({ path: [0], kind: 'added' }), ...entries];
+		left.value = 2;
+		flushSync();
+		await vi.waitFor(() => expect(container.querySelectorAll('.entry')).toHaveLength(3));
+		expect(active()).toBe('$[2]');
+	});
+
 	it('recomputes the diff and reloads each pane when its document changes', async () => {
 		texts = { L: '["a"]', R: '["b"]' };
 		entries = [entry({ path: [0], kind: 'changed' })];

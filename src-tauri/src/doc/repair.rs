@@ -1,6 +1,8 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use super::lazy::prescan;
 
 static UNESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\\+)(.)").unwrap());
 
@@ -163,7 +165,11 @@ impl<'de> serde::de::Visitor<'de> for Checked {
 }
 
 pub fn check_json(text: &str) -> serde_json::Result<()> {
-    serde_json::from_str::<Checked>(text).map(|_| ())
+    prescan(text).map_err(serde::de::Error::custom)?;
+    let mut de = serde_json::Deserializer::from_str(text);
+    de.disable_recursion_limit();
+    Checked::deserialize(&mut de)?;
+    de.end()
 }
 
 fn is_valid(text: &str) -> bool {
@@ -248,6 +254,7 @@ struct Notes {
     semicolons: u32,
     single_quoted: u32,
     quoted_keys: u32,
+    colons: u32,
     nulled: u32,
     escapes: u32,
     lone_surrogates: u32,
@@ -335,6 +342,14 @@ impl Notes {
                 self.quoted_keys,
                 "Added quotes around a key.",
                 "Added quotes around {n} keys.",
+            ),
+        );
+        add(
+            self.colons > 0,
+            count(
+                self.colons,
+                "Added a missing colon.",
+                "Added {n} missing colons.",
             ),
         );
         add(
@@ -541,6 +556,17 @@ impl<'a> Scanner<'a> {
             if let Some(f) = self.stack.last_mut() {
                 f.member_start = start;
             }
+        }
+        if self.top_slot() == Some(Slot::Colon) {
+            let gap = self
+                .out
+                .iter()
+                .rev()
+                .take_while(|b| b.is_ascii_whitespace())
+                .count();
+            self.out.insert(self.out.len() - gap, b':');
+            self.notes.colons += 1;
+            self.set_slot(Slot::Value);
         }
         if self.pending_comma {
             self.out.push(b',');
@@ -1027,6 +1053,31 @@ mod tests {
         assert!(notes.contains(&"Dropped the last key, which had no value.".to_string()));
         let (v, _) = fixed(r#"{"a": 1, "b": "#);
         assert_eq!(v, serde_json::json!({ "a": 1 }));
+    }
+
+    #[test]
+    fn a_missing_colon_is_added_and_the_key_and_value_are_kept() {
+        let r = repair(r#"{"a" 1}"#).unwrap();
+        assert_eq!(r.json, r#"{"a": 1}"#);
+        assert_eq!(r.notes, ["Added a missing colon."]);
+        let (v, notes) = fixed(r#"{"a" "b", "c" [1]}"#);
+        assert_eq!(v, serde_json::json!({ "a": "b", "c": [1] }));
+        assert_eq!(notes, ["Added 2 missing colons."]);
+        let (v, _) = fixed(r#"{"a" 1, "b": 2}"#);
+        assert_eq!(v, serde_json::json!({ "a": 1, "b": 2 }));
+        let (v, _) = fixed(r#"{"a" {"b" true}}"#);
+        assert_eq!(v, serde_json::json!({ "a": { "b": true } }));
+    }
+
+    #[test]
+    fn nesting_up_to_the_open_limit_is_checked_and_repaired() {
+        let nested = |depth: usize, inner: &str| {
+            format!("{}{inner}{}", "[".repeat(depth), "]".repeat(depth))
+        };
+        assert!(check_json(&nested(1000, "1")).is_ok());
+        assert!(check_json(&nested(1001, "1")).is_err());
+        assert!(check_json(&nested(100_000, "1")).is_err());
+        assert!(repair(&nested(500, "1,")).is_some());
     }
 
     #[test]

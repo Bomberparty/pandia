@@ -286,25 +286,28 @@ fn build_excerpt(text: &str, offset: usize, line: u32, column: u32) -> Option<Di
         return None;
     }
     let offset = offset.min(text.len());
-    let line_start = text[..offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_end = text[offset..]
-        .find('\n')
-        .map(|i| offset + i)
-        .unwrap_or(text.len());
 
-    let chars: Vec<char> = text[line_start..line_end].chars().collect();
-    let caret_in_line = text[line_start..offset].chars().count();
-
-    let start = caret_in_line.saturating_sub(EXCERPT_RADIUS);
-    let end = (caret_in_line + EXCERPT_RADIUS).min(chars.len());
+    let start = text[..offset]
+        .char_indices()
+        .rev()
+        .take_while(|&(_, c)| c != '\n')
+        .take(EXCERPT_RADIUS)
+        .last()
+        .map_or(offset, |(i, _)| i);
+    let end = text[offset..]
+        .char_indices()
+        .take_while(|&(_, c)| c != '\n')
+        .take(EXCERPT_RADIUS)
+        .last()
+        .map_or(offset, |(i, c)| offset + i + c.len_utf8());
 
     Some(DiagnosisExcerpt {
-        text: chars[start..end].iter().copied().map(visible).collect(),
-        caret: (caret_in_line - start) as u32,
+        text: text[start..end].chars().map(visible).collect(),
+        caret: text[start..offset].chars().count() as u32,
         line,
         column,
-        clipped_start: start > 0,
-        clipped_end: end < chars.len(),
+        clipped_start: text[..start].ends_with(|c: char| c != '\n'),
+        clipped_end: text[end..].starts_with(|c: char| c != '\n'),
     })
 }
 
@@ -540,5 +543,14 @@ mod tests {
     #[test]
     fn unrepairable_input_offers_no_fix() {
         assert!(d("not json at all, just prose").fix.is_none());
+    }
+
+    #[test]
+    fn the_excerpt_of_a_long_line_is_clipped_around_the_caret() {
+        let text = format!("[{}]", "1,".repeat(500_000));
+        let offset = text.len() - 1;
+        let r = build_excerpt(&text, offset, 1, offset as u32 + 1).expect("excerpt");
+        assert_eq!(r.text.chars().nth(r.caret as usize), Some(']'));
+        assert!(r.clipped_start);
     }
 }

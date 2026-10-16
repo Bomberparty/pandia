@@ -12,7 +12,6 @@
 	import { X } from '@lucide/svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import type { DocHandle, NodeKind, Path } from '$lib/ipc/bindings';
-	import type { PathKey } from '$lib/views/tree/logic/model';
 	import { describeError } from '$lib/ipc/error-copy';
 	import {
 		layoutGraph,
@@ -27,6 +26,7 @@
 		expandRow as expandRowFetch,
 		openRows,
 		reopenRows,
+		type OpenRows,
 		showMore as showMoreFetch,
 	} from '../logic/card-builder';
 	import { searchCards } from '../logic/card-search';
@@ -114,7 +114,7 @@
 		}
 	}
 
-	async function rebuild(gen: number, open: Map<PathKey, number>) {
+	async function rebuild(gen: number, open: OpenRows) {
 		try {
 			const r = await buildCard(handle, [], rootKind);
 			await reopenRows(handle, r, open);

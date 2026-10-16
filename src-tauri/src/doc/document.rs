@@ -1694,6 +1694,47 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "perf probe; run with --release --ignored"]
+    fn perf_grid_on_a_large_nested_array() {
+        use std::fmt::Write;
+        use std::time::Instant;
+        let n = 500_000u32;
+        let note = "x".repeat(120);
+        let mut text = String::from(r#"{"meta":{"v":1},"rows":["#);
+        for i in 0..n {
+            if i > 0 {
+                text.push(',');
+            }
+            write!(
+                text,
+                r#"{{"id":{i},"name":"user {i}","score":{i}.5,"active":true,"tags":["a","b"],"note":"{note}"}}"#
+            )
+            .unwrap();
+        }
+        text.push_str("]}");
+        let d = doc(&text);
+        eprintln!(
+            "[perf] {} MB, lazy={}",
+            text.len() / 1_000_000,
+            d.summary().lazy
+        );
+        let rows = Path(vec![PathSegment::Key("rows".into())]);
+
+        let t = Instant::now();
+        assert!(
+            super::super::schema::sniff_columns(&d, &rows)
+                .unwrap()
+                .grid_suitable
+        );
+        eprintln!("[perf] sniff columns: {:?}", t.elapsed());
+        for range in [0..100, 250_000..250_100, n - 100..n] {
+            let t = Instant::now();
+            assert_eq!(d.get_rows(&rows, range.clone()).unwrap().len(), 100);
+            eprintln!("[perf] rows {range:?}: {:?}", t.elapsed());
+        }
+    }
+
+    #[test]
     fn apply_set_value_bumps_version_and_returns_inverse() {
         let mut d = doc(r#"{"a": 1}"#);
         assert_eq!(d.version, 0);

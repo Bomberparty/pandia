@@ -20,7 +20,8 @@ pub struct DetectResult {
 }
 
 pub fn detect_and_convert(text: &str) -> DetectResult {
-    let trimmed = text.trim_start_matches('\u{feff}').trim_start();
+    let text = text.trim_start_matches('\u{feff}');
+    let trimmed = text.trim_start();
     if trimmed.is_empty() {
         return DetectResult {
             kind: DetectKind::Unknown,
@@ -652,6 +653,18 @@ mod tests {
         let r =
             detect_and_convert("\u{feff}{\"id\":1,\"n\":\"a\"}\n{\"id\":2,\"n\":\"b\"}\n{\"id\":3");
         assert_eq!(r.kind, DetectKind::Json);
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_the_converted_data() {
+        let csv = assert_json(&detect_and_convert("\u{feff}id,name\n1,a\n").json);
+        assert_eq!(csv, serde_json::json!([{ "id": 1, "name": "a" }]));
+        let yaml = assert_json(&detect_and_convert("\u{feff}id: 1\nname: a\n").json);
+        assert_eq!(yaml, serde_json::json!({ "id": 1, "name": "a" }));
+        let xml = assert_json(&detect_and_convert("\u{feff}<r><id>1</id></r>").json);
+        assert_eq!(xml, serde_json::json!({ "r": { "id": "1" } }));
+        let curl = assert_json(&detect_and_convert("\u{feff}curl https://example.com").json);
+        assert_eq!(curl["url"], "https://example.com");
     }
 
     #[test]

@@ -134,12 +134,27 @@ fn focus_main_window(app: &AppHandle) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// Documents open up to 1,000 levels deep, and parsing, export, diff and the code view recurse
+// once per level on these threads. Debug builds use far more stack per level than release.
+const RUNTIME_STACK_BYTES: usize = if cfg!(debug_assertions) { 256 } else { 32 } << 20;
+
+fn doc_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(RUNTIME_STACK_BYTES)
+        .build()
+        .expect("failed to start the async runtime")
+}
+
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let in_terminal = !cfg!(debug_assertions) && std::io::stderr().is_terminal();
     if (!args.is_empty() || in_terminal) && std::env::var_os(cli::LAUNCHED_ENV).is_none() {
         std::process::exit(cli::launch(args));
     }
+
+    let runtime = doc_runtime();
+    tauri::async_runtime::set(runtime.handle().clone());
 
     let handoffs = cli::Handoffs::default();
     let cli_files = cli::pending_from(
@@ -448,6 +463,32 @@ fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
     let menu_id = event.id().as_ref();
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.emit("menu-event", menu_id);
+    }
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use crate::doc::document::Document;
+    use crate::doc::export::ExportFormat;
+    use crate::doc::types::Path;
+
+    #[test]
+    fn a_thousand_deep_document_fits_on_the_runtime_threads() {
+        let text = format!("{}{{\"a\": 1}}{}", "[".repeat(999), "]".repeat(999));
+        super::doc_runtime().block_on(async move {
+            tokio::task::spawn_blocking(move || {
+                let doc = Document::from_text(&text, None).unwrap();
+                let root = doc.get_value(&Path::root()).unwrap();
+                doc.canonical_lines().unwrap();
+                for format in [ExportFormat::Json, ExportFormat::Yaml, ExportFormat::Xml] {
+                    doc.export(format).unwrap();
+                }
+                let never = crate::doc::jobs::CancelFlag::never();
+                crate::doc::diff::compute_diff(&root, &root, &never).unwrap();
+            })
+            .await
+            .unwrap();
+        });
     }
 }
 

@@ -1,3 +1,5 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -257,6 +259,7 @@ fn unique_name(
     base: &str,
     fallback: &str,
     taken: &mut std::collections::BTreeSet<String>,
+    key: fn(&str) -> String,
 ) -> String {
     let usable = base.chars().any(|c| c.is_ascii_alphanumeric());
     let stem = if usable { base } else { fallback };
@@ -265,9 +268,9 @@ fn unique_name(
             1 if usable => base.to_string(),
             n => format!("{stem}{n}"),
         })
-        .find(|name| !taken.contains(name))
+        .find(|name| !taken.contains(&key(name)))
         .expect("the candidate space is unbounded");
-    taken.insert(name.clone());
+    taken.insert(key(&name));
     name
 }
 
@@ -417,7 +420,7 @@ fn rust_type<'a>(
                     } else {
                         base
                     };
-                    let name = unique_name(&base, "field", &mut taken);
+                    let name = unique_name(&base, "field", &mut taken, str::to_string);
 
                     let rename = if name != *k {
                         format!("    #[serde(rename = {k:?})]\n")
@@ -464,6 +467,10 @@ fn rust_primitive(p: PrimitiveKind) -> &'static str {
     }
 }
 
+// encoding/json's isValidTag: any other character makes Go ignore the tag name.
+static GO_TAG_NAME: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[\p{L}\p{Nd}!#$%&()*+\-./:;<=>?@\[\]^_{|}~ ]+$").unwrap());
+
 fn render_go(shape: &TypeShape, name: &str) -> String {
     let mut structs: Vec<String> = Vec::new();
     let mut seen: BTreeMap<String, &TypeShape> = BTreeMap::new();
@@ -497,8 +504,12 @@ fn go_type<'a>(
                 let mut body = format!("type {struct_name} struct {{\n");
                 let mut taken = std::collections::BTreeSet::new();
                 for (k, v) in props {
-                    let field =
-                        unique_name(&capitalize_first(&camel_ident(k)), "Field", &mut taken);
+                    let field = unique_name(
+                        &capitalize_first(&camel_ident(k)),
+                        "Field",
+                        &mut taken,
+                        str::to_string,
+                    );
                     let ty = go_type(
                         &v.shape,
                         &to_pascal_case(&sanitize_ident(k, true)),
@@ -515,7 +526,12 @@ fn go_type<'a>(
                     } else {
                         ""
                     };
-                    let tag = format!("`json:\"{k}{options}\"`");
+                    let tag = if GO_TAG_NAME.is_match(k) {
+                        format!("`json:\"{k}{options}\"`")
+                    } else {
+                        let _ = writeln!(body, "    // JSON key {k:?} can't be named in a Go struct tag, so it won't decode into this field.");
+                        "`json:\"-\"`".to_string()
+                    };
                     let _ = writeln!(body, "    {field} {ty} {tag}");
                 }
                 body.push('}');
@@ -607,7 +623,9 @@ fn kotlin_type<'a>(
                 let entries: Vec<_> = props.iter().collect();
                 let mut taken = std::collections::BTreeSet::new();
                 for (i, (k, v)) in entries.iter().enumerate() {
-                    let prop_name = unique_name(&camel_ident(k), "field", &mut taken);
+                    // The JVM getter capitalizes the first letter: `Name` and `name` both give getName().
+                    let prop_name =
+                        unique_name(&camel_ident(k), "field", &mut taken, capitalize_first);
                     let prop_name = if KOTLIN_KEYWORDS.contains(&prop_name.as_str()) {
                         format!("`{prop_name}`")
                     } else {
@@ -701,7 +719,7 @@ fn python_type<'a>(
                         } else {
                             base
                         };
-                        let field = unique_name(&base, "field", &mut taken);
+                        let field = unique_name(&base, "field", &mut taken, str::to_string);
                         let ty = python_type(
                             &v.shape,
                             &to_pascal_case(&sanitize_ident(k, true)),
@@ -878,7 +896,7 @@ fn php_type<'a>(
                     } else {
                         prop_name
                     };
-                    let prop_name = unique_name(&prop_name, "field", &mut taken);
+                    let prop_name = unique_name(&prop_name, "field", &mut taken, str::to_string);
                     let ty = php_type(
                         &v.shape,
                         &to_pascal_case(&sanitize_ident(k, true)),
@@ -1012,7 +1030,8 @@ fn java_type<'a>(
                     } else {
                         base
                     };
-                    let field = unique_name(&base, "field", &mut taken);
+                    // The getter capitalizes the first letter: `Name` and `name` both give getName().
+                    let field = unique_name(&base, "field", &mut taken, capitalize_first);
                     let ty = java_type(
                         &v.shape,
                         &to_pascal_case(&sanitize_ident(k, true)),
@@ -1976,6 +1995,39 @@ mod tests {
         assert!(php.contains("public string $field2\n"), "{php}");
         let py = gen(&v, TypegenLang::Python);
         assert!(py.contains("    field1: str\n    field2: str"), "{py}");
+    }
+
+    #[test]
+    fn jvm_keys_differing_only_in_first_letter_case_get_numbered() {
+        let v = json!({"Name": "a", "name": "b"});
+        let java = gen(&v, TypegenLang::Java);
+        assert!(java.contains("public String getName()"), "{java}");
+        assert!(java.contains("public String getName2()"), "{java}");
+        let kt = gen(&v, TypegenLang::Kotlin);
+        assert!(
+            kt.contains("    val Name: String,\n    val name2: String"),
+            "{kt}"
+        );
+    }
+
+    #[test]
+    fn go_keys_a_struct_tag_cannot_name_are_skipped_with_a_comment() {
+        let v = json!({"": 1, "a\"b": 2, "a\\b": 3, "a,b": 4, "m²": 5, "ok key": 6, "名前": 7});
+        let go = gen(&v, TypegenLang::Go);
+        assert!(
+            go.contains(
+                "    // JSON key \"a,b\" can't be named in a Go struct tag, so it won't decode into this field.\n    AB2 int64 `json:\"-\"`"
+            ),
+            "{go}"
+        );
+        assert_eq!(
+            go.matches("can't be named in a Go struct tag").count(),
+            5,
+            "{go}"
+        );
+        assert_eq!(go.matches("`json:\"-\"`").count(), 5, "{go}");
+        assert!(go.contains("`json:\"ok key\"`"), "{go}");
+        assert!(go.contains("`json:\"名前\"`"), "{go}");
     }
 
     #[test]
