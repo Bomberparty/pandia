@@ -148,20 +148,17 @@ fn doc_runtime() -> tokio::runtime::Runtime {
 
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let in_terminal = !cfg!(debug_assertions) && std::io::stderr().is_terminal();
-    if (!args.is_empty() || in_terminal) && std::env::var_os(cli::LAUNCHED_ENV).is_none() {
+    let launched = std::env::var_os(cli::LAUNCHED_ENV).is_some();
+    // Only the launcher attaches: an app tied to the terminal would close with it.
+    let in_terminal = !cfg!(debug_assertions)
+        && !launched
+        && (cli::attach_console() || std::io::stderr().is_terminal());
+    if (!args.is_empty() || in_terminal) && !launched {
         std::process::exit(cli::launch(args));
     }
 
     let runtime = doc_runtime();
     tauri::async_runtime::set(runtime.handle().clone());
-
-    let handoffs = cli::Handoffs::default();
-    let cli_files = cli::pending_from(
-        args,
-        &std::env::current_dir().unwrap_or_default(),
-        &handoffs,
-    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -181,13 +178,19 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(AppState {
-            pending_files: Mutex::new(cli_files),
-            handoffs,
+            pending_files: Mutex::new(Vec::new()),
+            handoffs: cli::Handoffs::default(),
         })
         .manage(std::sync::Arc::new(doc::store::DocStore::new()))
         .manage(std::sync::Arc::new(doc::jobs::JobRegistry::default()))
         .invoke_handler(specta_builder().invoke_handler())
-        .setup(|app| {
+        .setup(move |app| {
+            // Read after the single-instance plugin has run: a launch that hands its files to an
+            // open Pandia exits before this, so only the app that keeps them takes the wait.
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let files = cli::pending_from(args, &cwd, &app.state::<AppState>().handoffs);
+            queue_files(app.handle(), files);
+
             let menu = build_menu(app.handle(), &[])?;
             app.set_menu(menu)?;
 

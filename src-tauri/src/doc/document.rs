@@ -6,6 +6,7 @@ use std::sync::Arc;
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sonic_rs::FastStr;
 
 use super::atomic;
 use super::backend::DocumentBackend;
@@ -61,6 +62,7 @@ pub struct Document {
     filter_cache: parking_lot::Mutex<Option<FilterCache>>,
     quick_text_cache: parking_lot::Mutex<HashMap<(Path, String), QuickTextColumn>>,
     canon_cache: parking_lot::Mutex<Option<CanonCache>>,
+    save_lock: Arc<parking_lot::Mutex<()>>,
 }
 
 #[derive(Debug)]
@@ -159,6 +161,23 @@ pub struct SaveResult {
     pub version: u64,
 }
 
+pub struct PendingSave {
+    target: String,
+    text: String,
+    version: u64,
+    hash: blake3::Hash,
+}
+
+impl PendingSave {
+    pub fn write(&self) -> DocResult<()> {
+        let target = FsPath::new(&self.target);
+        atomic::write_atomic(target, |w| {
+            std::io::Write::write_all(w, self.text.as_bytes())
+        })
+        .map_err(|e| DocError::file(FileOp::Save, target, e))
+    }
+}
+
 impl Document {
     fn ensure_within_max(size: u64) -> DocResult<()> {
         if size > MAX_DOC_BYTES {
@@ -170,25 +189,29 @@ impl Document {
         Ok(())
     }
 
-    fn parse(text: &str) -> DocResult<DocumentImpl> {
+    fn parse(text: &FastStr) -> DocResult<DocumentImpl> {
         if text.len() as u64 >= LAZY_THRESHOLD_BYTES {
-            return Ok(DocumentImpl::Lazy(LazyDoc::new(text)?));
+            return Ok(DocumentImpl::Lazy(LazyDoc::new(text.clone())?));
         }
         parse_json(text).map(DocumentImpl::Eager)
     }
 
     pub fn from_text(text: &str, source_path: Option<String>) -> DocResult<Self> {
+        Self::from_source(FastStr::new(text), source_path)
+    }
+
+    pub fn from_source(text: FastStr, source_path: Option<String>) -> DocResult<Self> {
         Self::ensure_within_max(text.len() as u64)?;
 
-        let (inner, size, recovery_note, comments_stripped) = match Self::parse(text) {
+        let (inner, size, recovery_note, comments_stripped) = match Self::parse(&text) {
             Ok(inner) => (inner, text.len() as u64, None, false),
             Err(strict) => {
                 let hint = source_path.as_deref().and_then(format::hint_from_path);
-                let r = format::recover(text, hint).ok_or(strict)?;
+                let r = format::recover(&text, hint).ok_or(strict)?;
                 Self::ensure_within_max(r.json.len() as u64)?;
                 let size = r.json.len() as u64;
                 (
-                    Self::parse(&r.json)?,
+                    Self::parse(&FastStr::from_string(r.json))?,
                     size,
                     r.note.map(str::to_string),
                     r.comments_stripped,
@@ -212,6 +235,7 @@ impl Document {
             filter_cache: parking_lot::Mutex::new(None),
             quick_text_cache: parking_lot::Mutex::new(HashMap::new()),
             canon_cache: parking_lot::Mutex::new(None),
+            save_lock: Arc::default(),
         };
         doc.saved_hash = doc.compute_content_hash();
         Ok(doc)
@@ -367,7 +391,18 @@ impl Document {
         self.backend().serialize_ndjson()
     }
 
+    #[cfg(test)]
     pub fn save(&mut self, path: Option<String>) -> DocResult<SaveResult> {
+        let pending = self.prepare_save(path)?;
+        pending.write()?;
+        Ok(self.finish_save(&pending))
+    }
+
+    pub fn save_lock(&self) -> Arc<parking_lot::Mutex<()>> {
+        Arc::clone(&self.save_lock)
+    }
+
+    pub fn prepare_save(&self, path: Option<String>) -> DocResult<PendingSave> {
         let target = path
             .or_else(|| self.file_path.clone())
             .ok_or_else(|| DocError::Edit("no file path — use Save As".into()))?;
@@ -378,18 +413,24 @@ impl Document {
             },
             _ => self.serialize()?,
         };
-        atomic::write_atomic(FsPath::new(&target), |w| {
-            std::io::Write::write_all(w, text.as_bytes())
-        })
-        .map_err(|e| DocError::file(FileOp::Save, FsPath::new(&target), e))?;
-        self.comments_stripped = false;
-        self.file_path = Some(target.clone());
-        self.source_path = Some(target.clone());
-        self.mark_saved();
-        Ok(SaveResult {
-            path: target,
+        Ok(PendingSave {
+            target,
+            text,
             version: self.version,
+            hash: self.current_hash(),
         })
+    }
+
+    pub fn finish_save(&mut self, saved: &PendingSave) -> SaveResult {
+        self.comments_stripped = false;
+        self.file_path = Some(saved.target.clone());
+        self.source_path = Some(saved.target.clone());
+        self.saved_version = saved.version;
+        self.saved_hash = saved.hash;
+        SaveResult {
+            path: saved.target.clone(),
+            version: saved.version,
+        }
     }
 
     pub fn save_copy(&mut self, target: &str) -> DocResult<()> {
@@ -1376,6 +1417,17 @@ mod tests {
         let s = d.summary();
         assert!(s.lazy);
         assert_eq!(s.root_kind, NodeKind::Object);
+    }
+
+    #[test]
+    fn a_lazy_doc_keeps_the_text_it_was_given_rather_than_a_copy() {
+        let pad = "x".repeat(11 * 1024 * 1024);
+        let text = FastStr::from_string(format!(r#"{{"pad": "{pad}"}}"#));
+        let d = Document::from_source(text.clone(), None).unwrap();
+        let DocumentImpl::Lazy(lazy) = &d.inner else {
+            panic!("expected the lazy backend");
+        };
+        assert_eq!(lazy.source().as_ptr(), text.as_ptr());
     }
 
     fn nested_doc(depth: usize, pad: usize) -> String {

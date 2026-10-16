@@ -29,21 +29,21 @@ pub struct LazyDoc {
 }
 
 impl LazyDoc {
-    pub fn new(text: &str) -> DocResult<Self> {
-        let repeated_keys = prescan(text)?;
-        sonic_rs::from_str::<serde::de::IgnoredAny>(text)
+    pub fn new(text: FastStr) -> DocResult<Self> {
+        let repeated_keys = prescan(&text)?;
+        sonic_rs::from_str::<serde::de::IgnoredAny>(&text)
             .map_err(|e| DocError::Parse(e.to_string()))?;
-        let root_kind = root_kind_of(text);
+        let root_kind = root_kind_of(&text);
 
         let source = if repeated_keys.is_empty() {
-            FastStr::new(text)
+            text
         } else {
             // Collapse repeated keys the way serde_json reads them (first position,
             // last value) so every lazy read agrees with the eager backend.
             let start = skip_ws(text.as_bytes(), 0);
             let end = skip_value(text.as_bytes(), start)?;
             let mut deduped = String::with_capacity(text.len());
-            write_deduped(text, start..end, &repeated_keys, &mut deduped);
+            write_deduped(&text, start..end, &repeated_keys, &mut deduped);
             FastStr::from_string(deduped)
         };
 
@@ -981,7 +981,7 @@ mod tests {
     use super::*;
 
     fn doc(s: &str) -> LazyDoc {
-        LazyDoc::new(s).expect("valid JSON in test")
+        LazyDoc::new(FastStr::new(s)).expect("valid JSON in test")
     }
 
     #[test]

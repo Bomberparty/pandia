@@ -74,7 +74,6 @@
 		const r = rightHandle;
 		void leftVersion;
 		void rightVersion;
-		// A recompute after an edit stays on the entry you were looking at, if it's still there.
 		const kept = untrack(() => entries[activeIndex]?.path);
 		if (staleSource) {
 			loading = false;
@@ -85,13 +84,14 @@
 			return;
 		}
 		let cancelled = false;
+		const jobId = crypto.randomUUID();
 		loading = true;
 		error = null;
 		entries = [];
 		activeIndex = -1;
 		activeHunk = 0;
 		void ipc
-			.docDiff(l, r, null)
+			.docDiff(l, r, jobId)
 			.then((es) => {
 				if (!cancelled) {
 					entries = es;
@@ -107,6 +107,7 @@
 			});
 		return () => {
 			cancelled = true;
+			void ipc.cancelJob(jobId).catch(() => {});
 		};
 	});
 

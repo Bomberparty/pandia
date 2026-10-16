@@ -46,7 +46,7 @@ mod conformance {
 
     fn backends() -> (Value, LazyDoc) {
         let eager: Value = serde_json::from_str(FIXTURE).expect("fixture parses");
-        let lazy = LazyDoc::new(FIXTURE).expect("fixture parses lazily");
+        let lazy = LazyDoc::new(FIXTURE.into()).expect("fixture parses lazily");
         (eager, lazy)
     }
 
@@ -166,7 +166,7 @@ mod conformance {
     fn repeated_keys_keep_first_position_and_last_value_like_eager() {
         const REPEATED: &str = r#"{"a": 1, "rows": [{"x": "old", "y": 2, "x": "new"}], "b": 3, "a": {"z": "kept"}, "b": 4}"#;
         let eager: Value = serde_json::from_str(REPEATED).unwrap();
-        let lazy = LazyDoc::new(REPEATED).unwrap();
+        let lazy = LazyDoc::new(REPEATED.into()).unwrap();
         assert_eq!(
             DocumentBackend::root_kind_and_count(&eager),
             DocumentBackend::root_kind_and_count(&lazy)

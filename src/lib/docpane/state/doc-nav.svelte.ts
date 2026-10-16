@@ -72,7 +72,7 @@ export class DocNavController {
 		}
 		if (parsed.path.length > 0) {
 			try {
-				await ipc.docGetValue(handle, parsed.path); // throws InvalidPath if absent
+				await ipc.docChildCount(handle, parsed.path);
 			} catch (e) {
 				this.deps.setError(
 					e instanceof IpcError && e.kind === 'invalidPath'

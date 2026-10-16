@@ -371,7 +371,7 @@
 						class="index-cell"
 						class:zebra={rowIdx % 2 === 1}
 						class:row-selected={selection.rowSelected(row?.index)}
-						style="top: {rowIdx * ROW_HEIGHT}px; height: {ROW_HEIGHT}px;"
+						style="top: {data.rowTop(rowIdx)}px; height: {ROW_HEIGHT}px;"
 						title="Click to select · shift-click for range"
 						onclick={(e) => row && selection.onIndexClick(e, rowIdx, row.index)}
 						>{row ? row.index : ''}</button
@@ -381,17 +381,15 @@
 		</div>
 
 		<div class="scroller" use:data.scroller.attach onscroll={() => filter.closeDropdown()}>
-			<div
-				class="content"
-				style="width: {columnLayout.total}px; height: {data.effectiveRowCount * ROW_HEIGHT}px;"
-			>
+			<div class="content" style="width: {columnLayout.total}px; height: {data.contentHeight}px;">
 				{#each data.visibleRows as rowIdx (rowIdx)}
 					<div
 						class="row"
 						class:zebra={rowIdx % 2 === 1}
 						class:row-selected={selection.rowSelected(data.getRow(rowIdx)?.index)}
-						style="top: {rowIdx *
-							ROW_HEIGHT}px; height: {ROW_HEIGHT}px; width: {columnLayout.total}px;"
+						style="top: {data.rowTop(
+							rowIdx,
+						)}px; height: {ROW_HEIGHT}px; width: {columnLayout.total}px;"
 					>
 						{#each orderedColumns as col, i (col.key)}
 							{#if i >= colWindow.start && i < colWindow.end}

@@ -116,13 +116,14 @@
 		void leftVersion;
 		void rightVersion;
 		let cancelled = false;
+		const jobId = crypto.randomUUID();
 		loading = true;
 		error = null;
 		leftSource.reset();
 		rightSource.reset();
 		maxTextLen = 0;
 		void ipc
-			.docDiffLines(l, r, null)
+			.docDiffLines(l, r, jobId)
 			.then((d) => {
 				if (cancelled) return;
 				const computed = unifiedRows(d);
@@ -145,6 +146,7 @@
 			});
 		return () => {
 			cancelled = true;
+			void ipc.cancelJob(jobId).catch(() => {});
 		};
 	});
 

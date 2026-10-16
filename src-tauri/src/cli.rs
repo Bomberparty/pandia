@@ -2,18 +2,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub(crate) const LAUNCHED_ENV: &str = "PANDIA_LAUNCHED";
 
 const STDIN_PREFIX: &str = "pandia-stdin-";
 const WAIT_PREFIX: &str = "pandia-wait-";
 const REPLY_PREFIX: &str = "pandia-reply-";
+const READY_PREFIX: &str = "pandia-ready-";
 const STDIN_FILE_FLAG: &str = "--stdin-file";
 const WAIT_ID_FLAG: &str = "--wait-id";
 const REPLY_FILE_FLAG: &str = "--reply-file";
+const READY_FILE_FLAG: &str = "--ready-file";
 
 const USAGE: &str = "\
 Usage: pandia [options] [file ...]
@@ -32,7 +34,7 @@ Options:
 
 Exit codes with --wait:
   0  the tabs closed and the Schema panel showed no errors
-  1  a file didn't open, or the Schema panel showed errors
+  1  a file didn't open, the Schema panel showed errors, or Pandia quit first
   2  the command was mistyped
   3  piped input closed without saving, so nothing was sent back
 ";
@@ -106,6 +108,7 @@ struct Request {
     stdin_file: Option<String>,
     wait_id: Option<String>,
     reply_file: Option<String>,
+    ready_file: Option<String>,
     problems: Vec<String>,
 }
 
@@ -137,6 +140,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Request {
             STDIN_FILE_FLAG => req.stdin_file = inline,
             WAIT_ID_FLAG => req.wait_id = inline,
             REPLY_FILE_FLAG => req.reply_file = inline,
+            READY_FILE_FLAG => req.ready_file = inline,
             _ if arg.starts_with('-') => req.problems.push(format!(
                 "{arg} isn't a Pandia option. Run pandia --help to see the options."
             )),
@@ -208,6 +212,9 @@ pub(crate) fn pending_from(
     if let Some(id) = &wait {
         handoffs.expect(id, opens.len());
     }
+    if let Some(path) = req.ready_file.filter(|p| is_handoff(p, READY_PREFIX)) {
+        let _ = std::fs::remove_file(path);
+    }
     opens
 }
 
@@ -220,7 +227,7 @@ pub(crate) struct Handoffs(Mutex<HandoffFiles>);
 
 #[derive(Default)]
 pub(crate) struct HandoffFiles {
-    waits: HashMap<String, (usize, Vec<TabReport>)>,
+    waits: HashMap<String, (usize, Vec<TabReport>, Option<std::fs::File>)>,
     piped: Vec<String>,
     replies: Vec<String>,
 }
@@ -232,21 +239,26 @@ impl Handoffs {
 
     fn expect(&self, id: &str, tabs: usize) {
         if tabs == 0 {
-            return finish_wait(id, Vec::new());
+            return finish_wait(hold(id), Vec::new());
         }
-        self.lock().waits.entry(id.to_string()).or_default().0 += tabs;
+        let mut files = self.lock();
+        let wait = files
+            .waits
+            .entry(id.to_string())
+            .or_insert_with(|| (0, Vec::new(), hold(id)));
+        wait.0 += tabs;
     }
 
     pub fn release(&self, id: &str, report: TabReport) {
         let mut files = self.lock();
-        let Some((open, reports)) = files.waits.get_mut(id) else {
+        let Some((open, reports, _)) = files.waits.get_mut(id) else {
             return;
         };
         *open = open.saturating_sub(1);
         reports.push(report);
         if *open == 0 {
-            if let Some((_, reports)) = files.waits.remove(id) {
-                finish_wait(id, reports);
+            if let Some((_, reports, marker)) = files.waits.remove(id) {
+                finish_wait(marker, reports);
             }
         }
     }
@@ -260,8 +272,8 @@ impl Handoffs {
 
     pub fn finish_all(&self) {
         let mut files = self.lock();
-        for (id, (_, reports)) in files.waits.drain() {
-            finish_wait(&id, reports);
+        for (_, (_, reports, marker)) in files.waits.drain() {
+            finish_wait(marker, reports);
         }
         for path in files.piped.drain(..) {
             let _ = std::fs::remove_file(path);
@@ -269,10 +281,20 @@ impl Handoffs {
     }
 }
 
-fn finish_wait(id: &str, files: Vec<TabReport>) {
+fn hold(marker: &str) -> Option<std::fs::File> {
+    let file = std::fs::OpenOptions::new().write(true).open(marker).ok()?;
+    file.lock().ok()?;
+    Some(file)
+}
+
+fn finish_wait(marker: Option<std::fs::File>, files: Vec<TabReport>) {
+    use std::io::Write;
     let exit_code = files.iter().map(TabReport::exit_code).max().unwrap_or(0);
-    if let Ok(json) = serde_json::to_string(&WaitReport { exit_code, files }) {
-        let _ = std::fs::write(id, json);
+    if let (Some(mut marker), Ok(json)) = (
+        marker,
+        serde_json::to_string(&WaitReport { exit_code, files }),
+    ) {
+        let _ = marker.write_all(json.as_bytes());
     }
 }
 
@@ -304,38 +326,80 @@ fn hand_off(req: &Request, args: Vec<String>) -> Result<(i32, String), String> {
         return Err("--wait needs a file to open, like: pandia --wait config.json".into());
     }
     let mut app_args: Vec<String> = args.into_iter().filter(|a| a != "-").collect();
+    let mut temp = TempFiles(Vec::new());
     if req.stdin {
         let saved = save_stdin()?;
         app_args.push(format!("{STDIN_FILE_FLAG}={}", saved.display()));
+        temp.0.push(saved);
     }
     let reply = if req.stdin && req.wait {
-        let path = handoff_path(REPLY_PREFIX, ".json");
-        create_private(&path).map_err(|_| {
-            format!(
-                "couldn't prepare a reply file in {}. Check that the folder exists and the disk has free space.",
-                std::env::temp_dir().display()
-            )
-        })?;
+        let path = temp.create(REPLY_PREFIX, ".json")?;
         app_args.push(format!("{REPLY_FILE_FLAG}={}", path.display()));
         Some(path)
     } else {
         None
     };
-    let marker = req.wait.then(|| handoff_path(WAIT_PREFIX, ""));
-    if let Some(marker) = &marker {
-        app_args.push(format!("{WAIT_ID_FLAG}={}", marker.display()));
-    }
-    spawn_app(&app_args)?;
+    let marker = if req.wait {
+        let path = temp.create(WAIT_PREFIX, "")?;
+        app_args.push(format!("{WAIT_ID_FLAG}={}", path.display()));
+        Some(path)
+    } else {
+        None
+    };
+    let mut app = spawn_app(&app_args)?;
     let Some(marker) = marker else {
+        temp.0.clear();
         return Ok((0, String::new()));
     };
-    let report = wait_for(&marker);
-    let reply_text = reply.map(|path| {
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let _ = std::fs::remove_file(&path);
-        text
-    });
+
+    remove_on_ctrl_c(reply.iter().chain([&marker]).cloned().collect());
+    let Some(report) = wait_for(&marker, &mut app) else {
+        eprintln!("pandia: Pandia quit before the file was closed.");
+        return Ok((1, String::new()));
+    };
+    let reply_text = reply.map(|path| std::fs::read_to_string(path).unwrap_or_default());
     Ok(finish(report, reply_text, req.json))
+}
+
+struct TempFiles(Vec<PathBuf>);
+
+impl TempFiles {
+    fn create(&mut self, prefix: &str, ext: &str) -> Result<PathBuf, String> {
+        let path = handoff_path(prefix, ext);
+        create_private(&path).map_err(|_| {
+            format!(
+                "couldn't prepare a temporary file in {}. Check that the folder exists and the disk has free space.",
+                std::env::temp_dir().display()
+            )
+        })?;
+        self.0.push(path.clone());
+        Ok(path)
+    }
+}
+
+impl Drop for TempFiles {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn remove_on_ctrl_c(files: Vec<PathBuf>) {
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return;
+        };
+        if runtime.block_on(tokio::signal::ctrl_c()).is_ok() {
+            for file in &files {
+                let _ = std::fs::remove_file(file);
+            }
+            std::process::exit(130);
+        }
+    });
 }
 
 fn finish(mut report: WaitReport, reply: Option<String>, json: bool) -> (i32, String) {
@@ -369,16 +433,28 @@ fn handoff_path(prefix: &str, ext: &str) -> PathBuf {
 }
 
 fn save_stdin() -> Result<PathBuf, String> {
-    let mut stdin = std::io::stdin().lock();
+    let stdin = std::io::stdin().lock();
     if stdin.is_terminal() {
         return Err(
             "nothing was piped in. Use it like: curl -s https://api.example.com/users | pandia -"
                 .into(),
         );
     }
+    save_piped(stdin, crate::doc::document::MAX_DOC_BYTES)
+}
+
+fn save_piped(input: impl std::io::Read, limit: u64) -> Result<PathBuf, String> {
     let path = handoff_path(STDIN_PREFIX, ".json");
-    let copied = create_private(&path).and_then(|mut f| std::io::copy(&mut stdin, &mut f));
+    let copied =
+        create_private(&path).and_then(|mut f| std::io::copy(&mut input.take(limit + 1), &mut f));
     match copied {
+        Ok(bytes) if bytes > limit => {
+            let _ = std::fs::remove_file(&path);
+            Err(format!(
+                "the piped input is larger than {} GB, the most Pandia can open. Pipe in a smaller part of it.",
+                limit >> 30
+            ))
+        }
         Ok(bytes) if bytes > 0 => Ok(path),
         Ok(_) => {
             let _ = std::fs::remove_file(&path);
@@ -405,6 +481,23 @@ fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
+// Windows release builds are GUI programs, so they start without the terminal's console and
+// anything printed is lost. Returns true when there was a terminal to attach to.
+#[cfg(windows)]
+pub(crate) fn attach_console() -> bool {
+    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AttachConsole(process_id: u32) -> i32;
+    }
+    unsafe { AttachConsole(ATTACH_PARENT_PROCESS) != 0 }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn attach_console() -> bool {
+    false
+}
+
 pub(crate) fn app_executable() -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     if let Some(appimage) = std::env::var_os("APPIMAGE") {
@@ -416,10 +509,13 @@ pub(crate) fn app_executable() -> Option<PathBuf> {
     Some(exe)
 }
 
-fn spawn_app(args: &[String]) -> Result<(), String> {
+fn spawn_app(args: &[String]) -> Result<Child, String> {
     let failed = || "couldn't start Pandia. Reinstall Pandia, then try again.".to_string();
     let mut cmd = Command::new(app_executable().ok_or_else(failed)?);
+    let ready = handoff_path(READY_PREFIX, "");
+    let _ = create_private(&ready);
     cmd.args(args)
+        .arg(format!("{READY_FILE_FLAG}={}", ready.display()))
         .env(LAUNCHED_ENV, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -436,17 +532,44 @@ fn spawn_app(args: &[String]) -> Result<(), String> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    cmd.spawn().map(drop).map_err(|_| failed())
+    let mut app = cmd.spawn();
+    if let Ok(app) = &mut app {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while ready.exists() && matches!(app.try_wait(), Ok(None)) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    let _ = std::fs::remove_file(&ready);
+    app.map_err(|_| failed())
 }
 
-fn wait_for(marker: &Path) -> WaitReport {
+fn read_report(marker: &Path) -> Option<WaitReport> {
+    serde_json::from_str(&std::fs::read_to_string(marker).ok()?).ok()
+}
+
+fn is_held(marker: &Path) -> bool {
+    std::fs::File::open(marker)
+        .is_ok_and(|file| matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)))
+}
+
+fn wait_for(marker: &Path, app: &mut Child) -> Option<WaitReport> {
+    let mut taken_over = false;
     loop {
         std::thread::sleep(Duration::from_millis(250));
-        if let Ok(text) = std::fs::read_to_string(marker) {
-            if let Ok(report) = serde_json::from_str(&text) {
-                let _ = std::fs::remove_file(marker);
-                return report;
+        if let Some(report) = read_report(marker) {
+            return Some(report);
+        }
+        match app.try_wait() {
+            Ok(None) => {}
+
+            Ok(Some(status)) if status.success() => {
+                if is_held(marker) {
+                    taken_over = true;
+                } else if taken_over {
+                    return read_report(marker);
+                }
             }
+            _ => return read_report(marker),
         }
     }
 }
@@ -544,11 +667,98 @@ mod tests {
         assert_eq!(got[0].wait, None);
     }
 
+    fn wait_in_background(
+        marker: PathBuf,
+        mut app: std::process::Child,
+    ) -> std::sync::mpsc::Receiver<Option<WaitReport>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(wait_for(&marker, &mut app));
+        });
+        rx
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn wait_ends_when_the_app_quits_before_the_tabs_close() {
+        let dir = std::env::temp_dir().join(format!("pandia-cli-crash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("pandia-wait-crash");
+        create_private(&marker).unwrap();
+        let crashed = Command::new("false").spawn().unwrap();
+
+        let got = wait_in_background(marker, crashed).recv_timeout(Duration::from_secs(3));
+        assert_eq!(got, Ok(None), "wait_for kept waiting after the app quit");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn wait_ends_when_the_open_pandia_that_took_the_files_quits() {
+        let dir = std::env::temp_dir().join(format!("pandia-cli-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("pandia-wait-gone");
+        create_private(&marker).unwrap();
+        let running_app = hold(&marker.to_string_lossy()).unwrap();
+        let handed_off = Command::new("true").spawn().unwrap();
+
+        let rx = wait_in_background(marker, handed_off);
+        assert!(
+            rx.recv_timeout(Duration::from_millis(800)).is_err(),
+            "keeps waiting while the open Pandia has the files"
+        );
+        drop(running_app);
+        let got = rx.recv_timeout(Duration::from_secs(2));
+        assert_eq!(
+            got,
+            Ok(None),
+            "wait_for kept waiting after the open Pandia quit"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn taking_the_files_tells_the_launcher_by_deleting_only_its_ready_file() {
+        let dir = std::env::temp_dir().join(format!("pandia-cli-ready-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ready = dir.join("pandia-ready-1");
+        let stranger = dir.join("notes.txt");
+        std::fs::write(&ready, "").unwrap();
+        std::fs::write(&stranger, "").unwrap();
+        let flag = |path: &Path| format!("--ready-file={}", path.display());
+
+        pending_from(args(&[&flag(&stranger)]), &dir, &Handoffs::default());
+        assert!(stranger.exists(), "only Pandia's own ready file is deleted");
+        pending_from(args(&[&flag(&ready)]), &dir, &Handoffs::default());
+        assert!(!ready.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_answer_nobody_waits_for_leaves_no_file_behind() {
+        let dir = std::env::temp_dir().join(format!("pandia-cli-left-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("pandia-wait-left");
+        create_private(&marker).unwrap();
+        let handoffs = Handoffs::default();
+        let flag = format!("--wait-id={}", marker.display());
+        pending_from(args(&["a.json", &flag]), &dir, &handoffs);
+
+        std::fs::remove_file(&marker).unwrap();
+        handoffs.release(&marker.to_string_lossy(), report("/w/a.json"));
+        assert!(
+            !marker.exists(),
+            "the stopped launcher's file is not recreated"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn wait_reports_the_worst_code_once_every_tab_is_closed() {
         let dir = std::env::temp_dir().join(format!("pandia-cli-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("pandia-wait-test");
+        create_private(&marker).unwrap();
         let id = marker.to_string_lossy().into_owned();
         let waits = Handoffs::default();
         let flag = format!("--wait-id={id}");
@@ -565,12 +775,11 @@ mod tests {
             ..report("/w/a.json")
         };
         waits.release(&id, invalid.clone());
-        assert!(!marker.exists());
+        assert_eq!(read_report(&marker), None);
         waits.release(&id, report("/w/b.json"));
-        let got = wait_for(&marker);
+        let got = read_report(&marker).unwrap();
         assert_eq!(got.exit_code, 1);
         assert_eq!(got.files, vec![invalid, report("/w/b.json")]);
-        assert!(!marker.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -579,10 +788,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pandia-cli-none-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("pandia-wait-none");
+        create_private(&marker).unwrap();
         let flag = format!("--wait-id={}", marker.display());
         let got = pending_from(args(&[&flag]), &dir, &Handoffs::default());
         assert!(got.is_empty());
-        assert_eq!(wait_for(&marker).exit_code, 0);
+        assert_eq!(read_report(&marker).unwrap().exit_code, 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -593,6 +803,7 @@ mod tests {
         let piped = dir.join("pandia-stdin-quit.json");
         std::fs::write(&piped, "[]").unwrap();
         let marker = dir.join("pandia-wait-quit");
+        create_private(&marker).unwrap();
         let handoffs = Handoffs::default();
         let stdin_flag = format!("--stdin-file={}", piped.display());
         let wait_flag = format!("--wait-id={}", marker.display());
@@ -600,7 +811,7 @@ mod tests {
 
         handoffs.finish_all();
         assert!(!piped.exists());
-        assert_eq!(wait_for(&marker).exit_code, 0);
+        assert_eq!(read_report(&marker).unwrap().exit_code, 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -641,6 +852,17 @@ mod tests {
             "an existing file is never reused"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn piped_input_is_saved_up_to_the_size_limit_and_refused_past_it() {
+        let saved = save_piped(&b"[1,2]"[..], 5).unwrap();
+        let text = std::fs::read_to_string(&saved).unwrap();
+        std::fs::remove_file(&saved).unwrap();
+        assert_eq!(text, "[1,2]");
+
+        let err = save_piped(&b"[1,2]"[..], 4).unwrap_err();
+        assert!(err.contains("larger than"), "{err}");
     }
 
     #[test]

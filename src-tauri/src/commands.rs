@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sonic_rs::FastStr;
 
 use crate::doc::backup::{self, BackupRecord};
 use crate::doc::detect::{detect_and_convert, DetectKind};
@@ -103,7 +104,9 @@ fn open_with_fix_limit(
     fix_limit: u64,
 ) -> DocResult<OpenOutcome> {
     let (text, name, file_path) = read_source(source)?;
-    let detail = match Document::from_text(&text, name.clone()) {
+    // Shared with the document, not copied; kept here for the fix-up paths below.
+    let text = FastStr::from_string(text);
+    let detail = match Document::from_source(text.clone(), name.clone()) {
         Ok(mut doc) => {
             doc.file_path = file_path;
             return Ok(opened(store, doc, OpenNotes::default()));
@@ -179,8 +182,7 @@ fn read_source(source: OpenSource) -> DocResult<(String, Option<String>, Option<
                     std::io::ErrorKind::NotFound.into(),
                 ));
             }
-            let text =
-                std::fs::read_to_string(file).map_err(|e| DocError::file(FileOp::Open, file, e))?;
+            let text = Document::read_text_file(file)?;
             Ok((text, Some("stdin".into()), None))
         }
     }
@@ -194,22 +196,25 @@ fn copy_name(name: Option<&str>, suffix: &str) -> String {
 }
 
 fn diff_docs(
-    l: &Document,
-    r: &Document,
+    store: &DocStore,
+    left: DocHandle,
+    right: DocHandle,
     cancel: &crate::doc::jobs::CancelFlag,
 ) -> DocResult<Vec<DiffEntry>> {
-    let l_val = l.get_value(&Path::root())?;
-    let r_val = r.get_value(&Path::root())?;
+    let (l_val, r_val) = store.read_both(left, right, |l, r| {
+        Ok((l.get_value(&Path::root())?, r.get_value(&Path::root())?))
+    })?;
     compute_diff(&l_val, &r_val, cancel)
 }
 
 fn diff_lines_docs(
-    l: &Document,
-    r: &Document,
+    store: &DocStore,
+    left: DocHandle,
+    right: DocHandle,
     cancel: &crate::doc::jobs::CancelFlag,
 ) -> DocResult<LineDiffResult> {
-    if std::ptr::eq(l, r) {
-        let (_, starts) = l.canonical_lines()?;
+    if left == right {
+        let (_, starts) = store.read(left, |doc| doc.canonical_lines())?;
         let lines = starts.len() as u32;
         return Ok(LineDiffResult {
             hunks: Vec::new(),
@@ -217,8 +222,9 @@ fn diff_lines_docs(
             right_lines: lines,
         });
     }
-    let (l_text, _) = l.canonical_lines()?;
-    let (r_text, _) = r.canonical_lines()?;
+    let (l_text, r_text) = store.read_both(left, right, |l, r| {
+        Ok((l.canonical_lines()?.0, r.canonical_lines()?.0))
+    })?;
     compute_line_diff(&l_text, &r_text, cancel)
 }
 
@@ -239,6 +245,18 @@ fn doc_get_lines_inner(
         let (text, starts) = doc.canonical_lines()?;
         Ok(line_slice(&text, &starts, start..end))
     })
+}
+
+fn doc_save_inner(
+    store: &DocStore,
+    handle: DocHandle,
+    path: Option<String>,
+) -> DocResult<SaveResult> {
+    let save_lock = store.read(handle, |doc| Ok(doc.save_lock()))?;
+    let _one_save_at_a_time = save_lock.lock();
+    let pending = store.read(handle, |doc| doc.prepare_save(path))?;
+    pending.write()?;
+    store.write(handle, |doc| Ok(doc.finish_save(&pending)))
 }
 
 #[tauri::command]
@@ -329,14 +347,13 @@ pub async fn doc_diff(
     let (cancel, owned_id) = match job_id {
         Some(id) => {
             let flag = jobs.register(id.clone());
-            (flag, Some(id))
+            (flag.clone(), Some((id, flag)))
         }
         None => (crate::doc::jobs::CancelFlag::never(), None),
     };
-    let result =
-        run_blocking(move || store.read_both(left, right, |l, r| diff_docs(l, r, &cancel))).await;
-    if let Some(id) = owned_id {
-        jobs.unregister(&id);
+    let result = run_blocking(move || diff_docs(&store, left, right, &cancel)).await;
+    if let Some((id, flag)) = owned_id {
+        jobs.unregister(&id, &flag);
     }
     result
 }
@@ -354,15 +371,13 @@ pub async fn doc_diff_lines(
     let (cancel, owned_id) = match job_id {
         Some(id) => {
             let flag = jobs.register(id.clone());
-            (flag, Some(id))
+            (flag.clone(), Some((id, flag)))
         }
         None => (crate::doc::jobs::CancelFlag::never(), None),
     };
-    let result =
-        run_blocking(move || store.read_both(left, right, |l, r| diff_lines_docs(l, r, &cancel)))
-            .await;
-    if let Some(id) = owned_id {
-        jobs.unregister(&id);
+    let result = run_blocking(move || diff_lines_docs(&store, left, right, &cancel)).await;
+    if let Some((id, flag)) = owned_id {
+        jobs.unregister(&id, &flag);
     }
     result
 }
@@ -536,7 +551,7 @@ pub async fn doc_get_rows_filtered(
     let (cancel, owned_id) = match job_id {
         Some(id) => {
             let flag = jobs.register(id.clone());
-            (flag, Some(id))
+            (flag.clone(), Some((id, flag)))
         }
         None => (crate::doc::jobs::CancelFlag::never(), None),
     };
@@ -559,8 +574,8 @@ pub async fn doc_get_rows_filtered(
         })
     })
     .await;
-    if let Some(id) = owned_id {
-        jobs.unregister(&id);
+    if let Some((id, flag)) = owned_id {
+        jobs.unregister(&id, &flag);
     }
     result
 }
@@ -610,9 +625,9 @@ pub async fn doc_column_values(
     key: String,
     limit: u32,
 ) -> Result<ColumnValues, WireError> {
-    state
-        .read(handle, |doc| doc.column_values(&path, &key, limit as usize))
-        .map_err(WireError::from)
+    let store = state.inner().clone();
+    run_blocking(move || store.read(handle, |doc| doc.column_values(&path, &key, limit as usize)))
+        .await
 }
 
 #[tauri::command]
@@ -634,9 +649,8 @@ pub async fn doc_apply_op(
     handle: DocHandle,
     op: Op,
 ) -> Result<ApplyResult, WireError> {
-    state
-        .write(handle, |doc| doc.apply(&op))
-        .map_err(WireError::from)
+    let store = state.inner().clone();
+    run_blocking(move || store.write(handle, |doc| doc.apply(&op))).await
 }
 
 #[tauri::command]
@@ -672,9 +686,8 @@ pub async fn doc_undo(
     state: tauri::State<'_, Arc<DocStore>>,
     handle: DocHandle,
 ) -> Result<Option<ApplyResult>, WireError> {
-    state
-        .write(handle, |doc| doc.undo())
-        .map_err(WireError::from)
+    let store = state.inner().clone();
+    run_blocking(move || store.write(handle, |doc| doc.undo())).await
 }
 
 #[tauri::command]
@@ -683,9 +696,8 @@ pub async fn doc_redo(
     state: tauri::State<'_, Arc<DocStore>>,
     handle: DocHandle,
 ) -> Result<Option<ApplyResult>, WireError> {
-    state
-        .write(handle, |doc| doc.redo())
-        .map_err(WireError::from)
+    let store = state.inner().clone();
+    run_blocking(move || store.write(handle, |doc| doc.redo())).await
 }
 
 #[tauri::command]
@@ -701,13 +713,13 @@ pub async fn doc_search(
     let (cancel, owned_id) = match job_id {
         Some(id) => {
             let flag = jobs.register(id.clone());
-            (flag, Some(id))
+            (flag.clone(), Some((id, flag)))
         }
         None => (crate::doc::jobs::CancelFlag::never(), None),
     };
     let result = run_blocking(move || store.read(handle, |doc| doc.search(&opts, &cancel))).await;
-    if let Some(id) = owned_id {
-        jobs.unregister(&id);
+    if let Some((id, flag)) = owned_id {
+        jobs.unregister(&id, &flag);
     }
     result
 }
@@ -740,7 +752,7 @@ pub async fn doc_save(
     path: Option<String>,
 ) -> Result<SaveResult, WireError> {
     let store = state.inner().clone();
-    run_blocking(move || store.write(handle, |doc| doc.save(path))).await
+    run_blocking(move || doc_save_inner(&store, handle, path)).await
 }
 
 #[tauri::command]
@@ -771,26 +783,29 @@ pub async fn doc_backup(
     handle: DocHandle,
     display_name: Option<String>,
 ) -> Result<bool, WireError> {
-    let (dirty, source_path, content) = state.read(handle, |doc| {
-        let s = doc.summary();
-        if !s.dirty {
-            return Ok((false, None, String::new()));
+    let store = state.inner().clone();
+    run_blocking(move || {
+        let (dirty, source_path, content) = store.read(handle, |doc| {
+            let s = doc.summary();
+            if !s.dirty {
+                return Ok((false, None, String::new()));
+            }
+            Ok((true, s.source_path.clone(), doc.serialize()?))
+        })?;
+        if !dirty {
+            backup::clear(&app, &handle.to_string())?;
+            return Ok(false);
         }
-        Ok((true, s.source_path.clone(), doc.serialize()?))
-    })?;
-    if !dirty {
-        backup::clear(&app, &handle.to_string()).map_err(WireError::from)?;
-        return Ok(false);
-    }
-    backup::write(
-        &app,
-        &handle.to_string(),
-        source_path,
-        display_name,
-        content,
-    )
-    .map_err(WireError::from)?;
-    Ok(true)
+        backup::write(
+            &app,
+            &handle.to_string(),
+            source_path,
+            display_name,
+            content,
+        )?;
+        Ok(true)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -921,9 +936,7 @@ mod tests {
     }
 
     fn diff(store: &DocStore, left: DocHandle, right: DocHandle) -> DocResult<Vec<DiffEntry>> {
-        store.read_both(left, right, |l, r| {
-            diff_docs(l, r, &crate::doc::jobs::CancelFlag::never())
-        })
+        diff_docs(store, left, right, &crate::doc::jobs::CancelFlag::never())
     }
 
     fn diff_lines(
@@ -931,9 +944,7 @@ mod tests {
         left: DocHandle,
         right: DocHandle,
     ) -> DocResult<LineDiffResult> {
-        store.read_both(left, right, |l, r| {
-            diff_lines_docs(l, r, &crate::doc::jobs::CancelFlag::never())
-        })
+        diff_lines_docs(store, left, right, &crate::doc::jobs::CancelFlag::never())
     }
 
     const CUT_OFF: &str = r#"[{"id":1,"url":"https://example.com/a","name":"first"},{"id":2,"url":"https://example.com/b","name":"second"},{"id":3,"name":"cut off her"#;
@@ -1118,6 +1129,25 @@ mod tests {
         let path = other.to_string_lossy().into_owned();
         assert!(doc_open_inner(&store, OpenSource::Piped { path }).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn piped_input_over_the_size_limit_is_refused_before_it_is_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("pandia-piped-big-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let handoff = dir.join("pandia-stdin-big.json");
+        let file = std::fs::File::create(&handoff).unwrap();
+        file.set_len(crate::doc::document::MAX_DOC_BYTES + 1)
+            .unwrap();
+        // Unreadable, so only a size check made before reading can report TooLarge.
+        std::fs::set_permissions(&handoff, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let path = handoff.to_string_lossy().into_owned();
+
+        let err = doc_open_inner(&DocStore::new(), OpenSource::Piped { path }).unwrap_err();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(matches!(err, DocError::TooLarge { .. }), "{err:?}");
     }
 
     #[test]
@@ -1629,6 +1659,186 @@ mod tests {
             .unwrap();
         let err = diff_lines(&store, left.handle, right.handle).unwrap_err();
         assert!(matches!(err, DocError::TooLarge { .. }));
+    }
+
+    /// Runs `diff` on two slow-to-compare documents and edits the left one meanwhile.
+    /// Returns how long the edit waited and how long the diff took.
+    fn edit_wait_during(
+        diff: impl FnOnce(&DocStore, DocHandle, DocHandle) + Send + 'static,
+    ) -> (std::time::Duration, std::time::Duration) {
+        // Few distinct lines in random order push the diff onto its slow path.
+        let mut seed = 7u64;
+        let mut digits = || {
+            let items: Vec<String> = (0..8_000)
+                .map(|_| {
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    ((seed >> 33) % 8).to_string()
+                })
+                .collect();
+            Document::from_text(&format!("[{}]", items.join(",")), None).unwrap()
+        };
+        let store = Arc::new(DocStore::new());
+        let (left, right) = (store.insert(digits()), store.insert(digits()));
+        for handle in [left, right] {
+            store.read(handle, |d| d.canonical_lines()).unwrap();
+        }
+        let s = Arc::clone(&store);
+        let started = std::time::Instant::now();
+        let running = std::thread::spawn(move || {
+            diff(&s, left, right);
+            started.elapsed()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let asked = std::time::Instant::now();
+        store
+            .write(left, |doc| {
+                doc.apply(&Op::SetValue {
+                    path: Path::root(),
+                    value: serde_json::json!([]),
+                })
+            })
+            .unwrap();
+        let waited = asked.elapsed();
+        (waited, running.join().unwrap())
+    }
+
+    #[test]
+    fn an_edit_does_not_wait_for_a_running_line_diff() {
+        let (waited, took) = edit_wait_during(|s, l, r| {
+            diff_lines(s, l, r).unwrap();
+        });
+        assert!(
+            waited < took / 4,
+            "the edit waited {waited:?} for a {took:?} diff"
+        );
+    }
+
+    #[test]
+    fn an_edit_does_not_wait_for_a_running_structural_diff() {
+        let (waited, took) = edit_wait_during(|s, l, r| {
+            diff(s, l, r).unwrap();
+        });
+        assert!(
+            waited < took / 4,
+            "the edit waited {waited:?} for a {took:?} diff"
+        );
+    }
+
+    /// A save target whose write blocks until the test reads it: a named pipe in a
+    /// read-only folder, so the save can't use a temp file and writes the pipe itself.
+    #[cfg(unix)]
+    struct SlowTarget {
+        dir: std::path::PathBuf,
+        path: String,
+    }
+
+    #[cfg(unix)]
+    impl SlowTarget {
+        fn new(name: &str) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = std::env::temp_dir().join(format!("pandia-{name}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("out.json");
+            let made = std::process::Command::new("mkfifo").arg(&path).status();
+            assert!(made.unwrap().success());
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            let path = path.to_string_lossy().into_owned();
+            Self { dir, path }
+        }
+
+        fn read(&self) -> String {
+            std::fs::read_to_string(&self.path).unwrap()
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for SlowTarget {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&self.dir, std::fs::Permissions::from_mode(0o755));
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_edit_during_a_slow_save_neither_waits_nor_is_marked_saved() {
+        let target = SlowTarget::new("slow-save");
+        let store = Arc::new(DocStore::new());
+        let handle = store.insert(Document::from_text(r#"{"a": 1}"#, None).unwrap());
+        store
+            .write(handle, |doc| {
+                doc.apply(&Op::SetValue {
+                    path: Path::root(),
+                    value: serde_json::json!({"a": 5}),
+                })
+            })
+            .unwrap();
+        let (s, path) = (Arc::clone(&store), target.path.clone());
+        let saving = std::thread::spawn(move || doc_save_inner(&s, handle, Some(path)));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let (done, edited) = std::sync::mpsc::channel();
+        let s = Arc::clone(&store);
+        std::thread::spawn(move || {
+            let edit = s.write(handle, |doc| {
+                doc.apply(&Op::SetValue {
+                    path: Path::root(),
+                    value: serde_json::json!({"a": 2}),
+                })
+            });
+            let _ = done.send(edit);
+        });
+        let edit = edited.recv_timeout(std::time::Duration::from_secs(2));
+        let written = target.read();
+        saving.join().unwrap().unwrap();
+
+        assert!(
+            edit.is_ok(),
+            "the edit waited for the save to reach the disk"
+        );
+        assert_eq!(written, "{\n  \"a\": 5\n}");
+        let dirty = store.read(handle, |d| Ok(d.summary().dirty)).unwrap();
+        assert!(
+            dirty,
+            "the edit is not in the file, so the document stays unsaved"
+        );
+        store.write(handle, |doc| doc.undo()).unwrap();
+        let dirty = store.read(handle, |d| Ok(d.summary().dirty)).unwrap();
+        assert!(
+            !dirty,
+            "after undoing the edit, the document matches the file"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_second_save_waits_until_the_first_has_written_its_file() {
+        let target = SlowTarget::new("two-saves");
+        let store = Arc::new(DocStore::new());
+        let handle = store.insert(Document::from_text(r#"{"a": 1}"#, None).unwrap());
+        let save = || {
+            let (s, path) = (Arc::clone(&store), target.path.clone());
+            std::thread::spawn(move || doc_save_inner(&s, handle, Some(path)))
+        };
+        let first = save();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        store
+            .write(handle, |doc| {
+                doc.apply(&Op::SetValue {
+                    path: Path::root(),
+                    value: serde_json::json!({"a": 2}),
+                })
+            })
+            .unwrap();
+        let second = save();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        assert_eq!(target.read(), "{\n  \"a\": 1\n}");
+        first.join().unwrap().unwrap();
+        assert_eq!(target.read(), "{\n  \"a\": 2\n}");
+        second.join().unwrap().unwrap();
+        assert!(!store.read(handle, |d| Ok(d.summary().dirty)).unwrap());
     }
 
     #[test]

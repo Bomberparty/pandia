@@ -7,9 +7,11 @@ import type { DiffEntry, Path } from '$lib/ipc/bindings';
 import { reactiveBox } from '$lib/views/shared/test-runes.svelte';
 import CompareView from './CompareView.svelte';
 
-// jsdom has no layout, and CodeMirror measures text ranges after each change.
+// jsdom has no layout: CodeMirror measures text ranges after each change, and the entry list
+// scrolls the selected entry into view.
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
+Element.prototype.scrollIntoView = () => {};
 globalThis.ResizeObserver = class {
 	observe() {}
 	unobserve() {}
@@ -23,6 +25,7 @@ vi.mock('$lib/ipc/client', () => ({
 		docCanonicalOffsets: vi.fn(),
 		docSummary: vi.fn(async () => ({ rootKind: 'array', rootChildCount: 0 })),
 		docDiffLines: vi.fn(async () => ({ hunks: [], leftLines: 1, rightLines: 1 })),
+		cancelJob: vi.fn(async () => true),
 	},
 }));
 
@@ -159,5 +162,49 @@ describe('CompareView — side-by-side', () => {
 		left.value = 3;
 		flushSync();
 		await vi.waitFor(() => expect(ipc.docDiffLines).toHaveBeenCalledTimes(2));
+	});
+});
+
+describe('CompareView — cancelling a running diff', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		texts = { L: '[]', R: '[]' };
+		entries = [];
+	});
+
+	it('cancels the structural diff when a document changes and when compare closes', async () => {
+		vi.mocked(ipc.docDiff).mockImplementation(() => new Promise(() => {}));
+		const left = reactiveBox(1);
+		const { unmount } = render(CompareView, {
+			props: {
+				...props,
+				get leftVersion() {
+					return left.value;
+				},
+			},
+		});
+		await vi.waitFor(() => expect(ipc.docDiff).toHaveBeenCalledTimes(1));
+		left.value = 2;
+		flushSync();
+		await vi.waitFor(() => expect(ipc.docDiff).toHaveBeenCalledTimes(2));
+		unmount();
+
+		const ids = vi.mocked(ipc.docDiff).mock.calls.map(([, , id]) => id);
+		expect(vi.mocked(ipc.cancelJob).mock.calls.map(([id]) => id)).toEqual(ids);
+		expect(new Set(ids).size).toBe(2);
+	});
+
+	it('cancels the line diff when you leave the inline layout', async () => {
+		vi.mocked(ipc.docDiffLines).mockImplementationOnce(() => new Promise(() => {}));
+		const { container } = render(CompareView, { props });
+		const { getByText } = within(container);
+
+		await fireEvent.click(getByText('Inline'));
+		await vi.waitFor(() => expect(ipc.docDiffLines).toHaveBeenCalledTimes(1));
+		await fireEvent.click(getByText('Side-by-side'));
+
+		const id = vi.mocked(ipc.docDiffLines).mock.calls[0]?.[2];
+		expect(id).toEqual(expect.any(String));
+		expect(ipc.cancelJob).toHaveBeenCalledWith(id);
 	});
 });

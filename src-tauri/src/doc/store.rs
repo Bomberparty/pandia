@@ -64,7 +64,14 @@ impl DocStore {
             return f(&doc, &doc);
         }
         let r = self.get(right)?;
-        let (l_doc, r_doc) = (l.read(), r.read());
+
+        let (l_doc, r_doc) = if left.0 < right.0 {
+            let l_doc = l.read();
+            (l_doc, r.read())
+        } else {
+            let r_doc = r.read();
+            (l.read(), r_doc)
+        };
         f(&l_doc, &r_doc)
     }
 
@@ -173,6 +180,37 @@ mod tests {
         assert_eq!(sizes.unwrap(), (8, 8));
         let missing = store.read_both(handle, DocHandle::new(), |_, _| Ok(()));
         assert!(matches!(missing, Err(DocError::NotFound(_))));
+    }
+
+    #[test]
+    fn swapped_read_both_calls_never_deadlock_with_queued_writers() {
+        let store = Arc::new(DocStore::new());
+        let a = store.insert(Document::from_text("[1]", None).unwrap());
+        let b = store.insert(Document::from_text("[22]", None).unwrap());
+        let (done, finished) = std::sync::mpsc::channel();
+        for (left, right) in [(a, b), (b, a)] {
+            let (s, tx) = (Arc::clone(&store), done.clone());
+            thread::spawn(move || {
+                for _ in 0..200_000 {
+                    let sizes = s.read_both(left, right, |l, r| Ok((l.source_size, r.source_size)));
+                    let want = if left == a { (3, 4) } else { (4, 3) };
+                    assert_eq!(sizes.unwrap(), want, "the closure gets the caller's order");
+                }
+                tx.send(()).unwrap();
+            });
+            let (s, tx) = (Arc::clone(&store), done.clone());
+            thread::spawn(move || {
+                for _ in 0..200_000 {
+                    s.write(left, |_| Ok(())).unwrap();
+                }
+                tx.send(()).unwrap();
+            });
+        }
+        for _ in 0..4 {
+            finished
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("read_both deadlocked");
+        }
     }
 
     #[test]

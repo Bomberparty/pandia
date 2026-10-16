@@ -14,6 +14,7 @@ vi.mock('$lib/ipc/client', () => ({
 		docOpen: vi.fn(),
 		docSummary: vi.fn(),
 		docDiff: vi.fn(async () => []),
+		cancelJob: vi.fn(async () => true),
 		docCanonicalText: vi.fn(async () => '[]'),
 		docCanonicalOffsets: vi.fn(async () => []),
 		docGetSlice: vi.fn(async () => []),
