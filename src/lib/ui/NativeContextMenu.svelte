@@ -3,6 +3,7 @@
 	import { EditorView } from '@codemirror/view';
 	import { selectAll } from '@codemirror/commands';
 	import { BLOCK_CONTEXT_MENU } from '$lib/util/flags';
+	import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 	type Editable = HTMLInputElement | HTMLTextAreaElement;
 
@@ -46,7 +47,7 @@
 		const text = editorTarget ? getEditorSelectionText(editorTarget) : getSelectionText();
 		if (text) {
 			try {
-				await navigator.clipboard.writeText(text);
+				await writeText(text);
 			} catch {
 				// clipboard access denied; silently no-op
 			}
@@ -54,7 +55,7 @@
 			const { selectionStart: s, selectionEnd: e, value } = editableTarget;
 			if (s != null && e != null && s !== e) {
 				try {
-					await navigator.clipboard.writeText(value.slice(s, e));
+					await writeText(value.slice(s, e));
 				} catch {
 					// ignore
 				}
@@ -68,7 +69,7 @@
 		if (editor) {
 			const { from, to } = editor.state.selection.main;
 			try {
-				await navigator.clipboard.writeText(editor.state.sliceDoc(from, to));
+				await writeText(editor.state.sliceDoc(from, to));
 				editor.dispatch({ changes: { from, to }, userEvent: 'delete.cut' });
 			} catch {
 				// ignore
@@ -86,7 +87,7 @@
 			return;
 		}
 		try {
-			await navigator.clipboard.writeText(value.slice(s, e));
+			await writeText(value.slice(s, e));
 			editableTarget.value = value.slice(0, s) + value.slice(e);
 			editableTarget.setSelectionRange(s, s);
 			editableTarget.dispatchEvent(new Event('input', { bubbles: true }));
@@ -100,7 +101,7 @@
 		const editor = editorTarget;
 		if (editor) {
 			try {
-				const text = await navigator.clipboard.readText();
+				const text = await readText();
 				editor.dispatch(editor.state.replaceSelection(text), {
 					userEvent: 'input.paste',
 					scrollIntoView: true,
@@ -116,7 +117,7 @@
 			return;
 		}
 		try {
-			const text = await navigator.clipboard.readText();
+			const text = await readText();
 			const { selectionStart: s, selectionEnd: e, value } = editableTarget;
 			const start = s ?? value.length;
 			const end = e ?? value.length;

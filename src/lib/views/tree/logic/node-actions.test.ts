@@ -8,6 +8,15 @@ import type { ContentRow } from './model';
 
 vi.mock('$lib/ipc/client', () => ({ ipc: { docGetValue: vi.fn() } }));
 
+const clipboard = vi.hoisted(() => {
+	let text = '';
+	return {
+		writeText: async (t: string) => void (text = t),
+		readText: async () => text,
+	};
+});
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => clipboard);
+
 const TEXT = '{"id": 7}';
 
 function setup(cutPath: Path) {
@@ -39,9 +48,7 @@ function row(path: Path): ContentRow {
 }
 
 describe('paste after cut moves the value', () => {
-	beforeEach(() => {
-		vi.stubGlobal('navigator', { clipboard: { readText: async () => TEXT } });
-	});
+	beforeEach(() => clipboard.writeText(TEXT));
 
 	it('moves an item down within its own array', async () => {
 		const { actions, ops, cut } = setup(['list', 2]);
@@ -81,13 +88,7 @@ describe('paste after cut moves the value', () => {
 
 describe('copy then paste', () => {
 	it.each(['"hello"', '"42"'])('pastes the string %s back unchanged', async (json) => {
-		let clipboard = '';
-		vi.stubGlobal('navigator', {
-			clipboard: {
-				writeText: async (t: string) => void (clipboard = t),
-				readText: async () => clipboard,
-			},
-		});
+		await clipboard.writeText('');
 		vi.mocked(ipc.docGetValue).mockResolvedValue(asLosslessText(json));
 		const { actions, ops, setError } = setup(['other']);
 		await actions.copy({ ...row(['list', 3]), kind: 'string' });

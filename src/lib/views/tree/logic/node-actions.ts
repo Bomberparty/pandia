@@ -1,3 +1,4 @@
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { ipc } from '$lib/ipc/client';
 import { describeError } from '$lib/ipc/error-copy';
 import type { ContentRow, Row } from './model';
@@ -89,7 +90,7 @@ export function createNodeActions(deps: NodeActionDeps) {
 		const handle = deps.handle();
 		if (!handle) return false;
 		try {
-			await navigator.clipboard.writeText(await ipc.docGetValue(handle, row.path));
+			await writeText(await ipc.docGetValue(handle, row.path));
 			return true;
 		} catch (e) {
 			deps.setError(describeError(e));
@@ -285,7 +286,7 @@ export function createNodeActions(deps: NodeActionDeps) {
 
 		async copyPath(row: ContentRow) {
 			try {
-				await navigator.clipboard.writeText(pathToString(row.path));
+				await writeText(pathToString(row.path));
 				deps.setCutMark(null);
 				deps.flash('copied path');
 			} catch (e) {
@@ -299,7 +300,7 @@ export function createNodeActions(deps: NodeActionDeps) {
 			if (!handle) return;
 			try {
 				const text = await ipc.docGetValue(handle, row.path);
-				await navigator.clipboard.writeText(text);
+				await writeText(text);
 				deps.setCutMark({ path: row.path, text });
 				deps.flash('cut — paste to move');
 			} catch (e) {
@@ -312,9 +313,9 @@ export function createNodeActions(deps: NodeActionDeps) {
 			if (row.depth === 0 || !handle) return;
 			let text: string;
 			try {
-				text = await navigator.clipboard.readText();
+				text = await readText();
 			} catch {
-				deps.setError('clipboard unavailable');
+				deps.setError('The clipboard has no text to paste. Copy some JSON, then paste again.');
 				return;
 			}
 			try {

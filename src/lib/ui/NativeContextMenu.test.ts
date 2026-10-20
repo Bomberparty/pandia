@@ -16,8 +16,11 @@ Object.defineProperty(HTMLElement.prototype, 'isContentEditable', {
 	},
 });
 
-const clipboard = { readText: vi.fn(async () => 'X'), writeText: vi.fn(async () => {}) };
-Object.defineProperty(navigator, 'clipboard', { value: clipboard });
+const clipboard = vi.hoisted(() => ({
+	readText: vi.fn(async () => 'X'),
+	writeText: vi.fn(async () => {}),
+}));
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => clipboard);
 
 let view: EditorView;
 
