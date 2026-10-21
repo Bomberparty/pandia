@@ -76,7 +76,7 @@ jobs:
         run: npm ci
         working-directory: ./website
 
-      # ── Build and upload release (UNSIGNED, NO UPDATER) ─────────────────
+      # ── Build and upload release (UNSIGNED) ─────────────────────────────
       - name: Build and upload release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -87,9 +87,9 @@ jobs:
           releaseBody: 'Automated unsigned test build.'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}' --config src-tauri/tauri.prod.conf.json
+          args: ${{ matrix.args }} --config src-tauri/tauri.prod.conf.json
 
-      # ── AppImage .DirIcon (Linux Only, UNSIGNED) ────────────────────────
+      # ── AppImage .DirIcon (Linux Only) ──────────────────────────────────
       - name: AppImage .DirIcon
         if: matrix.platform == 'ubuntu-22.04'
         env:
