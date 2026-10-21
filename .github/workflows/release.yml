@@ -53,7 +53,7 @@ jobs:
 
       # ── Import GPG key for Linux signing ────────────────────────────────
       - name: Import GPG key (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: false
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
