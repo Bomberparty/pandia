@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-	import { open as openDialog, message, ask } from '@tauri-apps/plugin-dialog';
+	import { open as openDialog, message } from '@tauri-apps/plugin-dialog';
 	import { open as openInBrowser } from '@tauri-apps/plugin-shell';
 	import { check } from '@tauri-apps/plugin-updater';
-	import { relaunch } from '@tauri-apps/plugin-process';
 	import { getVersion } from '@tauri-apps/api/app';
 	import { clearRecents, recentsStore } from '$lib/shell/state/recents-store.svelte';
 	import { updateCheck } from '$lib/shell/state/update-check.svelte';
+	import { whatsNew } from '$lib/shell/state/whats-new.svelte';
 	import { SANDBOX_ENABLED } from '$lib/util/flags';
 	import { JSON_OPEN_FILTERS } from '$lib/util/file-types';
 	import { describeError } from '$lib/ipc/error-copy';
@@ -18,6 +18,8 @@
 	import DocPane from '$lib/docpane/components/DocPane.svelte';
 	import HelpDialog from '$lib/shell/components/HelpDialog.svelte';
 	import FeedbackDialog from '$lib/shell/components/FeedbackDialog.svelte';
+	import UpdateDialog from '$lib/shell/components/UpdateDialog.svelte';
+	import WhatsNewDialog from '$lib/shell/components/WhatsNewDialog.svelte';
 	import SettingsView from '$lib/settings/SettingsView.svelte';
 	import type { SettingsTab } from '$lib/settings/tabs';
 	import Sidebar from './Sidebar.svelte';
@@ -137,6 +139,9 @@
 		},
 		openHelp: () => {
 			helpOpen = true;
+		},
+		openWhatsNew: () => {
+			whatsNewOpen = true;
 		},
 		openFeedback: () => {
 			feedbackOpen = true;
@@ -268,6 +273,7 @@
 	});
 
 	let helpOpen = $state(false);
+	let whatsNewOpen = $state(false);
 	let feedbackOpen = $state(false);
 	let settingsTab: SettingsTab | null = $state(null);
 
@@ -298,13 +304,7 @@
 		try {
 			const update = await check();
 			if (update) {
-				const yes = await ask(`Pandia ${update.version} is available. Download and install now?`, {
-					title: 'Update available',
-				});
-				if (yes) {
-					await update.downloadAndInstall();
-					await relaunch();
-				}
+				updateCheck.offer(update);
 			} else {
 				await message("You're up to date.", { title: 'Pandia' });
 			}
@@ -324,6 +324,10 @@
 	$effect(() => {
 		const t = setTimeout(() => void updateCheck.silentCheck(), 10000);
 		return () => clearTimeout(t);
+	});
+
+	$effect(() => {
+		void whatsNew.init().catch(() => {});
 	});
 
 	async function drainPendingFiles() {
@@ -477,6 +481,7 @@
 			status={workspace.activeStatus}
 			onPaletteOpen={openPalette}
 			onFeedback={() => (feedbackOpen = true)}
+			onWhatsNew={() => (whatsNewOpen = true)}
 		/>
 	</footer>
 
@@ -522,6 +527,14 @@
 
 {#if helpOpen}
 	<HelpDialog onClose={() => (helpOpen = false)} />
+{/if}
+
+{#if whatsNewOpen}
+	<WhatsNewDialog onClose={() => (whatsNewOpen = false)} />
+{/if}
+
+{#if updateCheck.dialogOpen && updateCheck.update}
+	<UpdateDialog update={updateCheck.update} />
 {/if}
 
 {#if feedbackOpen}

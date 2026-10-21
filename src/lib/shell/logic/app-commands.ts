@@ -18,6 +18,7 @@ export interface ShellCommandDeps {
 	toggleComparePicker: () => void;
 	openSettings: (tab?: SettingsTab) => void;
 	openHelp: () => void;
+	openWhatsNew: () => void;
 	openFeedback: () => void;
 	togglePalette: () => void;
 	clearRecents: () => void;
@@ -127,6 +128,12 @@ export function buildShellCommands(deps: ShellCommandDeps): Command[] {
 					},
 				] as Command[])
 			: []),
+		{
+			id: 'help.whatsNew',
+			label: "What's New",
+			category: 'Help',
+			run: deps.openWhatsNew,
+		},
 		{
 			id: 'help.shortcuts',
 			label: 'Keyboard Shortcuts',

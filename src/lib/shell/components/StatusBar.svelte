@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DocStatus } from '../logic/status';
 	import { updateCheck } from '$lib/shell/state/update-check.svelte';
+	import { whatsNew } from '$lib/shell/state/whats-new.svelte';
 	import { shortcutLabel } from '$lib/shell/logic/shortcuts';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { MessageSquarePlus } from '@lucide/svelte';
@@ -9,9 +10,10 @@
 		status: DocStatus | null;
 		onPaletteOpen?: () => void;
 		onFeedback?: () => void;
+		onWhatsNew?: () => void;
 	}
 
-	let { status, onPaletteOpen, onFeedback }: Props = $props();
+	let { status, onPaletteOpen, onFeedback, onWhatsNew }: Props = $props();
 </script>
 
 <div class="statusbar">
@@ -60,10 +62,20 @@
 
 	<div class="sb-spacer"></div>
 
+	{#if whatsNew.unseen.length > 0}
+		<button
+			class="sb-cell right update-cell"
+			onclick={() => onWhatsNew?.()}
+			title="See what changed in Pandia {whatsNew.running}"
+		>
+			<span class="val update-dot">what's new in {whatsNew.running}</span>
+		</button>
+	{/if}
+
 	{#if updateCheck.availableVersion}
 		<button
 			class="sb-cell right update-cell"
-			onclick={() => void updateCheck.promptAndInstall()}
+			onclick={() => updateCheck.openDialog()}
 			title="Pandia {updateCheck.availableVersion} is available — click to install"
 		>
 			<span class="val update-dot">update v{updateCheck.availableVersion}</span>

@@ -373,6 +373,7 @@ fn build_menu(
         .item(&compare_files)
         .build()?;
 
+    let whats_new = item(app, "help.whatsNew", "What's New")?;
     let keyboard_shortcuts = item(app, "help.shortcuts", "Keyboard Shortcuts")?;
     let view_website = item(app, "help.website", "View Website")?;
     let join_discussions = item(app, "help.discussions", "Join Discussions…")?;
@@ -381,6 +382,7 @@ fn build_menu(
 
     #[cfg(not(target_os = "macos"))]
     let help_menu = SubmenuBuilder::new(app, "Help")
+        .item(&whats_new)
         .item(&keyboard_shortcuts)
         .item(&view_website)
         .item(&join_discussions)
@@ -393,6 +395,7 @@ fn build_menu(
 
     #[cfg(target_os = "macos")]
     let help_menu = SubmenuBuilder::new(app, "Help")
+        .item(&whats_new)
         .item(&keyboard_shortcuts)
         .item(&view_website)
         .item(&join_discussions)

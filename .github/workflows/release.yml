@@ -95,6 +95,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ── Release notes ───────────────────────────────────────────────────
+      - name: Release notes
+        id: notes
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          notes=$(node scripts/release-notes.ts "$TAG")
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            echo "$notes"
+            echo 'RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       # ── Build and release ───────────────────────────────────────────────
       - name: Build and upload release
         uses: tauri-apps/tauri-action@v0
@@ -122,7 +136,7 @@ jobs:
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 'Pandia ${{ github.event.inputs.tag || github.ref_name }}'
-          releaseBody: 'See assets to download and install this version.'
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }} --config src-tauri/tauri.prod.conf.json

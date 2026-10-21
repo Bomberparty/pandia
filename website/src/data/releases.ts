@@ -51,6 +51,11 @@ export const releases: Release[] = [
 						detail:
 							'Double-click a key or value in Tree to edit it in place. F2 does the same from the keyboard.',
 					},
+					{
+						title: 'See what changed when you update',
+						detail:
+							'The update prompt now shows the notes for the new version, with Install and restart, Later and Skip this version. If you update another way, a “what’s new” cell in the status bar opens them once. Help → What’s New shows every version.',
+					},
 				],
 			},
 			{

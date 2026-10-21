@@ -35,6 +35,9 @@ export function describeUrlFetchFailure(url: string): string {
 	return `Couldn't reach ${host}. Check the URL and your connection.`;
 }
 
+export const UPDATE_FAILED =
+	"Couldn't download or install the update. Check your connection and try again, or download it from pandia.app.";
+
 export function describeError(e: unknown): string {
 	if (e instanceof IpcError) return describeIpc(e);
 	if (e instanceof Error && e.message.trim()) return sentence(e.message.trim());
