@@ -34,7 +34,6 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
 
-    # Release build flags — consumed by src/lib/util/flags.ts (Vite import.meta.env)
     env:
       VITE_BLOCK_CONTEXT_MENU: 'true'
       VITE_ENABLE_SANDBOX: 'false'
@@ -50,28 +49,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf
-
-      # ── Import GPG key for Linux signing ────────────────────────────────
-      - name: Import GPG key (Linux)
-        if: false
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        run: |
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          # Extract the key ID
-          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format long 2>/dev/null \
-            | grep "^sec" | head -1 | awk '{print $2}' | cut -d'/' -f2)
-          echo "GPG_KEY_ID=$GPG_KEY_ID" >> "$GITHUB_ENV"
-
-      # ── Write Apple API key file (macOS) ────────────────────────────────
-      - name: Write Apple API key (macOS)
-        if: matrix.platform == 'macos-latest'
-        env:
-          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/private_keys"
-          echo "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
-          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8" >> "$GITHUB_ENV"
 
       # ── Node.js ─────────────────────────────────────────────────────────
       - name: Setup Node.js
@@ -91,66 +68,32 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      # ── Install frontend dependencies ───────────────────────────────────
-      - name: Install dependencies
+      # ── Install frontend dependencies (ROOT AND WEBSITE) ────────────────
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install website dependencies
         run: npm ci
         working-directory: ./website
 
-      # ── Release notes ───────────────────────────────────────────────────
-      - name: Release notes
-        id: notes
-        shell: bash
-        env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          notes=$(node scripts/release-notes.ts "$TAG")
-          {
-            echo 'body<<RELEASE_NOTES_EOF'
-            echo "$notes"
-            echo 'RELEASE_NOTES_EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      # ── Build and release ───────────────────────────────────────────────
+      # ── Build and upload release (UNSIGNED) ─────────────────────────────
       - name: Build and upload release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-          # ── macOS code signing ──
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-
-          # ── macOS notarization (API key method) ──
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
-
-          # ── Linux AppImage signing ──
-          SIGN: ${{ matrix.platform == 'ubuntu-22.04' && '1' || '' }}
-          SIGN_KEY: ${{ env.GPG_KEY_ID }}
-          APPIMAGETOOL_SIGN_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-
-          # ── Tauri updater signing (all platforms) ──
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 'Pandia ${{ github.event.inputs.tag || github.ref_name }}'
-          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseBody: 'Automated unsigned test build.'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }} --config src-tauri/tauri.prod.conf.json
 
-      # ── AppImage .DirIcon
+      # ── AppImage .DirIcon (Linux Only, UNSIGNED) ────────────────────────
       - name: AppImage .DirIcon
         if: matrix.platform == 'ubuntu-22.04'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SIGN_KEY: ${{ env.GPG_KEY_ID }}
-          APPIMAGETOOL_SIGN_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
@@ -173,17 +116,15 @@ jobs:
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x /tmp/appimagetool
 
-          ARCH=x86_64 SIGN=1 /tmp/appimagetool --appimage-extract-and-run \
-            -u "gh-releases-zsync|hendurhance|pandia|latest|Pandia_*_amd64.AppImage.zsync" \
+          ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run \
             squashfs-root "$APPIMAGE"
 
           tar -czf "${APPIMAGE}.tar.gz" -C "$DIR" "$NAME"
-          npx tauri signer sign "${APPIMAGE}.tar.gz"
 
-          for S in "" ".tar.gz" ".tar.gz.sig" ".zsync"; do
+          for S in "" ".tar.gz"; do
             gh release delete-asset "$TAG" "${NAME}${S}" --yes 2>/dev/null || true
           done
           gh release upload "$TAG" \
-            "$APPIMAGE" "${APPIMAGE}.tar.gz" "${APPIMAGE}.tar.gz.sig" "${NAME}.zsync"
+            "$APPIMAGE" "${APPIMAGE}.tar.gz"
 
-          rm -rf squashfs-root /tmp/appimagetool "${NAME}.zsync"
+          rm -rf squashfs-root /tmp/appimagetool
