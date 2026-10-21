@@ -68,7 +68,7 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      # ── Install frontend dependencies (ROOT AND WEBSITE) ────────────────
+      # ── Install frontend dependencies ───────────────────────────────────
       - name: Install root dependencies
         run: npm ci
 
@@ -76,7 +76,7 @@ jobs:
         run: npm ci
         working-directory: ./website
 
-      # ── Build and upload release (UNSIGNED) ─────────────────────────────
+      # ── Build and upload release (UNSIGNED, NO UPDATER) ─────────────────
       - name: Build and upload release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -87,7 +87,7 @@ jobs:
           releaseBody: 'Automated unsigned test build.'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }} --config src-tauri/tauri.prod.conf.json
+          args: ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}' --config src-tauri/tauri.prod.conf.json
 
       # ── AppImage .DirIcon (Linux Only, UNSIGNED) ────────────────────────
       - name: AppImage .DirIcon
