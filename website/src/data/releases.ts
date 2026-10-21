@@ -13,6 +13,184 @@ export interface Release {
 
 export const releases: Release[] = [
 	{
+		version: '1.0.8',
+		date: 'October 21, 2026',
+		tag: 'Stable',
+		tagKind: 'stable',
+		groups: [
+			{
+				label: 'New',
+				items: [
+					{
+						title: 'Open files from the terminal with `pandia`',
+						detail:
+							'Install the command under Settings → Behavior. `pandia a.json b.json` opens both files as tabs in the window you already have, `pandia --diff a.json b.json` opens them in Compare, and `cat data.json | pandia -` opens piped input. See [the command-line guide](/docs/command-line).',
+					},
+					{
+						title: 'Review piped JSON and send it back to a script',
+						detail:
+							'With `--wait`, the command waits until you close the tab. Edit the JSON, press Save, and the command prints what you saved, so `pandia --wait - < draft.json > final.json` puts a person in the middle of a script. The exit code says whether the file opened, passed its schema or was closed without saving, and `--json` prints a full report instead.',
+					},
+					{
+						title: 'Schemas load on their own',
+						detail:
+							'Open a document whose top-level `$schema` points to a schema file or URL, and the Schema panel loads it and validates. `--schema` sets one from the terminal and wins over the document. Pandia asks before downloading a schema from the web, and uses only https:// unless you allow http under Settings → Behavior. Requested in [#27](https://github.com/hendurhance/pandia/issues/27).',
+					},
+					{
+						title: 'Preview images inside your data',
+						detail:
+							'Hover a value holding an image in Tree or Grid to see it. `data:image` values show at once. Links to images on the web ask before loading, or load straight away once you turn on “image previews from the web”.',
+					},
+					{
+						title: 'Pull one key out of every item',
+						detail:
+							'Right-click a key inside an array item and choose “Extract key from all items”. Pandia collects that key from every item into a new tab as an array, and skips items that do not have it.',
+					},
+					{
+						title: 'Edit a key or value where it is',
+						detail:
+							'Double-click a key or value in Tree to edit it in place. F2 does the same from the keyboard.',
+					},
+				],
+			},
+			{
+				label: 'Improved',
+				items: [
+					{
+						title: 'A repaired file opens as a copy',
+						detail:
+							'Repair used to put the fixed text in place of your file on the next Save. A repaired file now opens as `name.repaired.json`, so Save asks where to keep it, and the banner lists each change in a plain sentence, such as “Added a missing colon.”',
+					},
+					{
+						title: 'Repair fixes more broken files',
+						detail:
+							'`{"a" 1}` gets its colon back instead of losing the key, JSON Lines with a cut-off last line opens, a broken `\\ud800` escape becomes �, and `NaN`, `Infinity` or `undefined` turned into `null` come with a note that says so.',
+					},
+					{
+						title: 'Very large files take half the memory',
+						detail:
+							'Opening a 524 MB file used to peak at 1.08 GB of memory, because the text was held twice. It now peaks at 553 MB, so a 2 GB file no longer needs about 4 GB free.',
+					},
+					{
+						title: 'Grid reaches every row and finds every column',
+						detail:
+							'Arrays of more than 1.4 million rows stopped scrolling before the end; the scrollbar now reaches the last row. A key that appears in only a few items far down the array now becomes a column, found by a scan in the background. On an array nested inside a 106 MB file, finding the columns went from 9.8 seconds to 0.18.',
+					},
+					{
+						title: 'Grid shows `null` and filters text as text',
+						detail:
+							'A `null` cell shows `—`, so it no longer looks the same as a missing one, and filtering a text column for `501` no longer matches `00501`.',
+					},
+					{
+						title: 'Documents nested up to 1,000 levels deep',
+						detail:
+							'Valid JSON nested more than 128 levels deep was called invalid, and some deeper files crashed the app. Every view now handles 1,000 levels, and a deeper file gets a plain message instead of a crash.',
+					},
+					{
+						title: 'Compare shows what really changed',
+						detail:
+							'Editing an item after an insert used to show the whole item as removed and added again. Compare now shows the insert and the one field that changed, updates as you edit either side, and keeps your place in the list.',
+					},
+					{
+						title: 'Generated types compile in more cases',
+						detail:
+							'Keys like `type` or `class` no longer break Rust, Python, Java or Kotlin. Java compiles as one file, IDs above the 64-bit signed limit get `u64`, `uint64` or `BigInteger`, PHP no longer writes the invalid `?mixed`, and Python dataclasses import with optional fields in any order.',
+					},
+					{
+						title: 'CSV keeps your data as it is',
+						detail:
+							'Importing keeps codes like `00501` as text. Exporting puts a `\'` before text that starts with `=`, `+`, `-` or `@`, so a spreadsheet shows it instead of running it as a formula.',
+					},
+					{
+						title: 'Theme follows your system',
+						detail:
+							'New installs and Restore defaults use Auto, and light mode no longer flashes dark at startup.',
+					},
+					{
+						title: 'File errors name the file and the cause',
+						detail:
+							'When open, save or export fails, the message says which file and why: it is missing, you have no permission, it is a folder, it is not UTF-8, the disk is full or it is read-only.',
+					},
+				],
+			},
+			{
+				label: 'Fixed',
+				items: [
+					{
+						title: 'Copy value and paste failed on Linux',
+						detail:
+							'Copy → Value showed “The request is not allowed by the user agent…” and copied nothing, and Paste said the clipboard was unavailable. Copy and paste now go through the system clipboard directly. Reported in [#30](https://github.com/hendurhance/pandia/issues/30).',
+					},
+					{
+						title: 'A failed edit on a large file could replace it with `null`',
+						detail:
+							'On files of 10 MB or more, an edit that reached a deeply nested value or a broken emoji escape turned the document into `null`, and Save then wrote `null` over the file. A failed edit now leaves the document as it was.',
+					},
+					{
+						title: 'Repair could change the text inside strings',
+						detail:
+							'A path such as `C:\\\\new\\\\file.txt` came back with a line break and a form feed in it. Repair no longer touches escapes inside strings.',
+					},
+					{
+						title: 'Replace All could delete a key',
+						detail:
+							'Replacing `foo` with `baz` in `{"foo": 1, "baz": 2}` silently dropped one of them. A rename that would collide with another key is now skipped.',
+					},
+					{
+						title: 'Restoring after a crash brought back only one tab',
+						detail:
+							'“Restore all” reopened the last backup and deleted the others, and opening several files at once, by dropping three or with `pandia a.json b.json`, opened only the last. Every file now opens in its own tab, and a backup is deleted only after its tab opens.',
+					},
+					{
+						title: 'Close Document discarded unsaved edits',
+						detail:
+							'It now asks first, the same as closing a tab.',
+					},
+					{
+						title: 'A crash during Save could leave half a file',
+						detail:
+							'Save, export and crash backups now write to a temporary file and swap it in, so a crash or a full disk mid-write leaves the original intact. An export that fails no longer empties the file it was replacing.',
+					},
+					{
+						title: 'Your last keystrokes could be skipped by Save',
+						detail:
+							'A background save that finished while you were typing in Code view marked the tab as saved, so ⌘S missed what you typed after it. An unfinished edit in Code view was also dropped when you jumped away with Compare, Go to Path or the Outline.',
+					},
+					{
+						title: 'Moves in Tree landed on the wrong item',
+						detail:
+							'Dragging item 500 onto 499 moved it to index 231, an edit could save to another row after rows loaded above it, and Cut then Paste in the same array made a copy instead of moving.',
+					},
+					{
+						title: 'Edits waited for a running comparison',
+						detail:
+							'Comparing two large documents held them locked, so an edit could wait close to a second for the comparison to finish. Edits now go through at once.',
+					},
+					{
+						title: 'Find and Replace opened Hide on macOS',
+						detail:
+							'⌘H is the macOS shortcut for Hide. Find and Replace is now ⌘⌥F on macOS and opens with the replace field showing; Windows and Linux keep Ctrl+H.',
+					},
+					{
+						title: 'Text-field shortcuts on Windows and Linux',
+						detail:
+							'Ctrl+Z and Ctrl+Shift+V in a text field now edit that field instead of the document, and Ctrl+Z on a French AZERTY keyboard no longer closes the tab.',
+					},
+					{
+						title: 'Find jumped back to the first match after every edit',
+						detail:
+							'It now keeps your place, and an edit in Code view with Find open no longer switches you to Tree.',
+					},
+					{
+						title: 'Graph cards overlapped and went stale',
+						detail:
+							'A tall card no longer covers the one above it, the graph updates after Undo and Redo, and an error no longer replaces it for good. Arrays with thousands of items show a set number of cards and a “… N more” card instead of thousands of cards.',
+					},
+				],
+			},
+		],
+	},
+	{
 		version: '1.0.7',
 		date: 'September 30, 2026',
 		tag: 'Stable',
